@@ -22,7 +22,5 @@
     "fakeTime": "2026-12-25T12:00"
   },
   "taxProvince": "BC",
-  "useCustomTaxRate": false,
-  "customTaxRate": 25,
   "highPrecision": false
 }

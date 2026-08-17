@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Settings, X, Plus, Trash2, Clock, CalendarDays, DollarSign, Download, Upload, Copy, FileJson, Database, Briefcase, PieChart, Beaker, Landmark, Monitor } from 'lucide-react';
 import { UserConfig, PayPeriodType } from './types';
-import { calculateAnnualSalary, formatMoney, formatMoneyParts, getDailyWorkingMilliseconds, parseTime, getWorkingMsBetween, getCurrentPayPeriodStart, calculateEffectiveTaxRate } from './lib/calculator';
+import { calculateAnnualSalary, formatMoney, formatMoneyParts, getDailyWorkingMilliseconds, parseTime, getWorkingMsBetween, getCurrentPayPeriodStart, getCurrentPayPeriodEnd, calculateNetIncome } from './lib/calculator';
 import defaultConfigFile from './config.json';
 
 const DEFAULT_CONFIG: UserConfig = defaultConfigFile as UserConfig;
@@ -17,7 +17,8 @@ const DAYS_OF_WEEK = [
 ];
 
 type ViewMode = 'TOTAL' | 'YTD' | 'PERIOD';
-type TaxMode = 'GROSS' | 'NET';
+type TaxMode = 'GROSS' | 'ACTUAL';
+type StreamDisplayMode = 'EARNED' | 'REMAINING';
 
 export default function App() {
   const [config, setConfig] = useState<UserConfig>(() => {
@@ -28,11 +29,12 @@ export default function App() {
     if (!parsed.payPeriod) parsed.payPeriod = { type: 'BIWEEKLY', anchorDate: '2026-01-01' };
     if (!parsed.testing) parsed.testing = { useFakeTime: false, fakeTime: '' };
     if (!parsed.taxProvince) parsed.taxProvince = 'BC';
-    if (parsed.useCustomTaxRate === undefined) parsed.useCustomTaxRate = false;
-    if (parsed.customTaxRate === undefined) parsed.customTaxRate = 25;
     if (parsed.highPrecision === undefined) parsed.highPrecision = false;
     
-    // Migrate old global startDate to individual streams
+    // Remove old properties if they exist
+    delete (parsed as any).useCustomTaxRate;
+    delete (parsed as any).customTaxRate;
+    
     if ((parsed as any).startDate) {
       parsed.streams = parsed.streams.map((s: any) => ({ ...s, startDate: s.startDate || (parsed as any).startDate }));
       delete (parsed as any).startDate;
@@ -44,19 +46,22 @@ export default function App() {
   });
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [annualTotal, setAnnualTotal] = useState(0);
+  const [annualTotalDisplay, setAnnualTotalDisplay] = useState(0);
   const [isWorking, setIsWorking] = useState(false);
   const [simulatedTimeDisplay, setSimulatedTimeDisplay] = useState('');
   
   const [viewMode, setViewMode] = useState<ViewMode>('PERIOD');
   const [taxMode, setTaxMode] = useState<TaxMode>('GROSS');
+  const [streamDisplayMode, setStreamDisplayMode] = useState<StreamDisplayMode>('EARNED');
 
   // Track modes in refs to avoid restarting the 60FPS loop on UI clicks
   const viewModeRef = useRef<ViewMode>(viewMode);
   const taxModeRef = useRef<TaxMode>(taxMode);
+  const streamDisplayModeRef = useRef<StreamDisplayMode>(streamDisplayMode);
   
   useEffect(() => { viewModeRef.current = viewMode; }, [viewMode]);
   useEffect(() => { taxModeRef.current = taxMode; }, [taxMode]);
+  useEffect(() => { streamDisplayModeRef.current = streamDisplayMode; }, [streamDisplayMode]);
 
   const todayDollarRef = useRef<HTMLSpanElement>(null);
   const todayCentRef = useRef<HTMLSpanElement>(null);
@@ -74,13 +79,7 @@ export default function App() {
     let animationFrameId: number;
 
     const dailyMs = getDailyWorkingMilliseconds(config.schedule);
-    const annualSalary = calculateAnnualSalary(config.streams);
-    
-    // Calculate precise Effective Tax Rate once outside the loop
-    const effectiveTaxRate = config.useCustomTaxRate 
-      ? (config.customTaxRate / 100) 
-      : calculateEffectiveTaxRate(annualSalary, config.taxProvince);
-    
+    const annualSalaryGross = calculateAnnualSalary(config.streams);
     const annualMs = dailyMs * config.schedule.days.length * 52;
 
     const tickStartReal = Date.now();
@@ -90,6 +89,14 @@ export default function App() {
     const getNow = () => useFakeTime ? new Date(fakeStartMs + (Date.now() - tickStartReal)) : new Date();
     const nowRef = getNow();
     const startOfToday = new Date(nowRef.getFullYear(), nowRef.getMonth(), nowRef.getDate());
+    const startOfYear = new Date(nowRef.getFullYear(), 0, 1);
+    const endOfYear = new Date(nowRef.getFullYear() + 1, 0, 1);
+    
+    let periodStart = getCurrentPayPeriodStart(nowRef, config.payPeriod.type, config.payPeriod.anchorDate);
+    let periodEnd = getCurrentPayPeriodEnd(periodStart, config.payPeriod.type);
+
+    const msTotalInYear = getWorkingMsBetween(startOfYear, endOfYear, config.schedule, dailyMs);
+    const msTotalInPeriod = getWorkingMsBetween(periodStart, periodEnd, config.schedule, dailyMs);
 
     // Pre-calculate elapsed historical time per stream
     const streamData = config.streams.map(stream => {
@@ -103,22 +110,25 @@ export default function App() {
       }
       
       const isStartedToday = startOfToday >= parsedStartDate;
-
       const historicalStart = parsedStartDate;
       
-      let ytdStart = new Date(nowRef.getFullYear(), 0, 1);
+      let ytdStart = new Date(startOfYear);
       if (parsedStartDate > ytdStart) ytdStart = parsedStartDate;
 
-      let periodStart = getCurrentPayPeriodStart(nowRef, config.payPeriod.type, config.payPeriod.anchorDate);
-      if (parsedStartDate > periodStart) periodStart = parsedStartDate;
+      let pStart = new Date(periodStart);
+      if (parsedStartDate > pStart) pStart = parsedStartDate;
 
       return {
         id: stream.id,
+        amount: stream.amount,
         streamRateGross,
+        streamAnnualGross,
         isStartedToday,
         msHistorical: getWorkingMsBetween(historicalStart, startOfToday, config.schedule, dailyMs),
         msYtd: getWorkingMsBetween(ytdStart, startOfToday, config.schedule, dailyMs),
-        msPeriod: getWorkingMsBetween(periodStart, startOfToday, config.schedule, dailyMs)
+        msPeriod: getWorkingMsBetween(pStart, startOfToday, config.schedule, dailyMs),
+        maxGrossPeriod: msTotalInPeriod * streamRateGross,
+        maxGrossYtd: msTotalInYear * streamRateGross,
       };
     });
 
@@ -128,8 +138,9 @@ export default function App() {
       const now = getNow();
       let msWorkedToday = 0;
       let isWorkingNow = false;
+      const todayIsWorkDay = config.schedule.days.includes(now.getDay()) && dailyMs > 0;
 
-      if (config.schedule.days.includes(now.getDay()) && dailyMs > 0) {
+      if (todayIsWorkDay) {
         const startTime = new Date(now);
         const s = parseTime(config.schedule.startTime);
         startTime.setHours(s.h, s.m, 0, 0);
@@ -146,53 +157,109 @@ export default function App() {
         }
       }
 
-      const multiplier = taxModeRef.current === 'NET' ? (1 - effectiveTaxRate) : 1;
+      let totalGrossToday = 0;
+      let totalGrossPeriod = 0;
+      let totalGrossYtd = 0;
+      let totalGrossTotal = 0;
+
+      // Calculate Running Gross Totals
+      streamData.forEach((sData) => {
+        const streamGrossToday = sData.isStartedToday ? (msWorkedToday * sData.streamRateGross) : 0;
+        totalGrossToday += streamGrossToday;
+        totalGrossPeriod += (sData.msPeriod * sData.streamRateGross) + streamGrossToday;
+        totalGrossYtd += (sData.msYtd * sData.streamRateGross) + streamGrossToday;
+        totalGrossTotal += (sData.msHistorical * sData.streamRateGross) + streamGrossToday;
+      });
+
+      // Calculate Exact Marginal Net (Actual)
+      const totalNetYtd = calculateNetIncome(totalGrossYtd, config.taxProvince);
       
-      let totalEarnedToday = 0;
-      let totalEarnedAgg = 0;
+      const netAtStartOfDay = calculateNetIncome(totalGrossYtd - totalGrossToday, config.taxProvince);
+      const exactNetToday = totalNetYtd - netAtStartOfDay;
+      
+      const netAtStartOfPeriod = calculateNetIncome(totalGrossYtd - totalGrossPeriod, config.taxProvince);
+      const exactNetPeriod = totalNetYtd - netAtStartOfPeriod;
+      
+      const effectiveYtdRate = totalGrossYtd > 0 ? (totalNetYtd / totalGrossYtd) : 1;
+      const exactNetTotal = totalGrossTotal * effectiveYtdRate; // Historical total uses blended current YTD rate
 
-      // Calculate and update streams
-      config.streams.forEach((stream, i) => {
-        const sData = streamData[i];
-        
-        // A stream only earns today if today is on or after its start date
-        const streamMsWorkedToday = sData.isStartedToday ? msWorkedToday : 0;
-        const streamEarnedToday = streamMsWorkedToday * sData.streamRateGross * multiplier;
-        totalEarnedToday += streamEarnedToday;
+      // Main UI Panel Totals
+      const isActual = taxModeRef.current === 'ACTUAL';
+      
+      const displayTotalToday = isActual ? exactNetToday : totalGrossToday;
+      
+      let displayTotalAgg = 0;
+      if (viewModeRef.current === 'TOTAL') displayTotalAgg = isActual ? exactNetTotal : totalGrossTotal;
+      else if (viewModeRef.current === 'YTD') displayTotalAgg = isActual ? totalNetYtd : totalGrossYtd;
+      else if (viewModeRef.current === 'PERIOD') displayTotalAgg = isActual ? exactNetPeriod : totalGrossPeriod;
 
-        let displayMs = 0;
-        if (viewModeRef.current === 'TOTAL') displayMs = sData.msHistorical + streamMsWorkedToday;
-        else if (viewModeRef.current === 'YTD') displayMs = sData.msYtd + streamMsWorkedToday;
-        else if (viewModeRef.current === 'PERIOD') displayMs = sData.msPeriod + streamMsWorkedToday;
-        
-        const streamEarnedAgg = displayMs * sData.streamRateGross * multiplier;
-        totalEarnedAgg += streamEarnedAgg;
-        
+      // Update Main DOM
+      const { dollars: tDol, cents: tCent } = formatMoneyParts(displayTotalToday, numDecimals);
+      if (todayDollarRef.current) todayDollarRef.current.innerText = tDol;
+      if (todayCentRef.current) todayCentRef.current.innerText = tCent;
+
+      const { dollars: totDol, cents: totCent } = formatMoneyParts(displayTotalAgg, numDecimals);
+      if (totalDollarRef.current) totalDollarRef.current.innerText = totDol;
+      if (totalCentRef.current) totalCentRef.current.innerText = totCent;
+      
+      // Update Stream Widgets
+      // To ensure individual streams strictly equal the exact marginal net, we apply 
+      // the proportional weight of the stream for that period to the exact total net.
+      const ratioToday = totalGrossToday > 0 ? (exactNetToday / totalGrossToday) : 1;
+      const ratioPeriod = totalGrossPeriod > 0 ? (exactNetPeriod / totalGrossPeriod) : 1;
+      
+      streamData.forEach(sData => {
+        const streamGrossToday = sData.isStartedToday ? (msWorkedToday * sData.streamRateGross) : 0;
+        let streamGrossAgg = 0;
+        let maxGrossAgg = 0;
+        let ratioAgg = 1;
+
+        if (viewModeRef.current === 'TOTAL') {
+          streamGrossAgg = (sData.msHistorical * sData.streamRateGross) + streamGrossToday;
+          maxGrossAgg = sData.amount; // Total grant amount
+          ratioAgg = effectiveYtdRate;
+        } else if (viewModeRef.current === 'YTD') {
+          streamGrossAgg = (sData.msYtd * sData.streamRateGross) + streamGrossToday;
+          maxGrossAgg = sData.maxGrossYtd;
+          ratioAgg = effectiveYtdRate;
+        } else if (viewModeRef.current === 'PERIOD') {
+          streamGrossAgg = (sData.msPeriod * sData.streamRateGross) + streamGrossToday;
+          maxGrossAgg = sData.maxGrossPeriod;
+          ratioAgg = ratioPeriod;
+        }
+
+        let displayStreamAggGross = 0;
+        let displayStreamTodayGross = 0;
+
+        if (streamDisplayModeRef.current === 'EARNED') {
+          displayStreamAggGross = streamGrossAgg;
+          displayStreamTodayGross = streamGrossToday;
+        } else {
+          // REMAINING logic
+          displayStreamAggGross = Math.max(0, maxGrossAgg - streamGrossAgg);
+          const maxGrossToday = sData.isStartedToday && todayIsWorkDay ? (dailyMs * sData.streamRateGross) : 0;
+          displayStreamTodayGross = Math.max(0, maxGrossToday - streamGrossToday);
+        }
+
+        const finalStreamAgg = isActual ? displayStreamAggGross * ratioAgg : displayStreamAggGross;
+        const finalStreamToday = isActual ? displayStreamTodayGross * ratioToday : displayStreamTodayGross;
+
         // Update DOM per stream
-        const { dollars: aggDol, cents: aggCent } = formatMoneyParts(streamEarnedAgg, numDecimals);
-        const refAggDol = streamRefs.current[`${stream.id}-agg-dollar`];
-        const refAggCent = streamRefs.current[`${stream.id}-agg-cent`];
+        const { dollars: aggDol, cents: aggCent } = formatMoneyParts(finalStreamAgg, numDecimals);
+        const refAggDol = streamRefs.current[`${sData.id}-agg-dollar`];
+        const refAggCent = streamRefs.current[`${sData.id}-agg-cent`];
         if (refAggDol) refAggDol.innerText = aggDol;
         if (refAggCent) refAggCent.innerText = aggCent;
         
-        const { dollars: todDol, cents: todCent } = formatMoneyParts(streamEarnedToday, numDecimals);
-        const refTodDol = streamRefs.current[`${stream.id}-today-dollar`];
-        const refTodCent = streamRefs.current[`${stream.id}-today-cent`];
+        const { dollars: todDol, cents: todCent } = formatMoneyParts(finalStreamToday, numDecimals);
+        const refTodDol = streamRefs.current[`${sData.id}-today-dollar`];
+        const refTodCent = streamRefs.current[`${sData.id}-today-cent`];
         if (refTodDol) refTodDol.innerText = todDol;
         if (refTodCent) refTodCent.innerText = todCent;
       });
 
-      // Update Top Level DOM
-      const { dollars: tDol, cents: tCent } = formatMoneyParts(totalEarnedToday, numDecimals);
-      if (todayDollarRef.current) todayDollarRef.current.innerText = tDol;
-      if (todayCentRef.current) todayCentRef.current.innerText = tCent;
-
-      const { dollars: totDol, cents: totCent } = formatMoneyParts(totalEarnedAgg, numDecimals);
-      if (totalDollarRef.current) totalDollarRef.current.innerText = totDol;
-      if (totalCentRef.current) totalCentRef.current.innerText = totCent;
-      
-      const displayAnnual = taxModeRef.current === 'NET' ? annualSalary * multiplier : annualSalary;
-      setAnnualTotal(prev => prev !== displayAnnual ? displayAnnual : prev);
+      const displayAnnualSalary = isActual ? calculateNetIncome(annualSalaryGross, config.taxProvince) : annualSalaryGross;
+      setAnnualTotalDisplay(prev => prev !== displayAnnualSalary ? displayAnnualSalary : prev);
       setIsWorking(prev => prev !== isWorkingNow ? isWorkingNow : prev);
       
       if (useFakeTime) {
@@ -271,18 +338,19 @@ export default function App() {
               {isWorking ? 'Active Earnings' : 'Off Hours'}
             </div>
             
+            {/* Gross / Actual Pill Toggle */}
             <div className="inline-flex items-center p-0.5 rounded-full bg-slate-900 border border-slate-800 text-sm font-medium shadow-sm">
               <button
                 onClick={() => setTaxMode('GROSS')}
                 className={`px-3 py-0.5 rounded-full transition-colors ${taxMode === 'GROSS' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-300'}`}
               >
-                Pre-Tax
+                Gross
               </button>
               <button
-                onClick={() => setTaxMode('NET')}
-                className={`px-3 py-0.5 rounded-full transition-colors ${taxMode === 'NET' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400 hover:text-slate-300'}`}
+                onClick={() => setTaxMode('ACTUAL')}
+                className={`px-3 py-0.5 rounded-full transition-colors ${taxMode === 'ACTUAL' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400 hover:text-slate-300'}`}
               >
-                After-Tax
+                Actual
               </button>
             </div>
 
@@ -298,7 +366,7 @@ export default function App() {
             Total Compensation Tracker
           </h1>
           <p className="text-xl text-slate-500">
-            {formatMoney(annualTotal, 0)} / year {taxMode === 'NET' ? 'net ' : 'base '}equivalent
+            {formatMoney(annualTotalDisplay, 0)} / year {taxMode === 'ACTUAL' ? 'actual ' : 'base '}equivalent
           </p>
         </div>
 
@@ -340,24 +408,33 @@ export default function App() {
           {/* Income Stream Breakdown Widget */}
           {config.streams.length > 0 && (
             <div className="md:col-span-2 bg-slate-900/50 border border-slate-800 p-6 md:p-8 rounded-3xl shadow-2xl flex flex-col">
-              <div className="flex items-center gap-2 text-slate-400 mb-6 font-medium tracking-wide uppercase text-sm">
-                <PieChart size={18} />
-                <span>Stream Breakdown</span>
+              
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+                <div className="flex items-center gap-2 text-slate-400 font-medium tracking-wide uppercase text-sm">
+                  <PieChart size={18} />
+                  <span>Stream Breakdown</span>
+                </div>
+                
+                {/* Earned vs Remaining Toggle */}
+                <div className="flex bg-slate-950/80 rounded-lg p-1 border border-slate-800 w-full sm:w-auto">
+                  <button onClick={() => setStreamDisplayMode('EARNED')} className={`flex-1 sm:flex-none px-4 py-1.5 text-xs font-semibold rounded-md transition-all ${streamDisplayMode === 'EARNED' ? 'bg-slate-800 text-emerald-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>
+                    Earned
+                  </button>
+                  <button onClick={() => setStreamDisplayMode('REMAINING')} className={`flex-1 sm:flex-none px-4 py-1.5 text-xs font-semibold rounded-md transition-all ${streamDisplayMode === 'REMAINING' ? 'bg-slate-800 text-emerald-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}>
+                    Remaining
+                  </button>
+                </div>
               </div>
+
               <div className="w-full grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                 {config.streams.map(stream => {
-                  const effectiveTaxRate = config.useCustomTaxRate 
-                    ? (config.customTaxRate / 100) 
-                    : calculateEffectiveTaxRate(calculateAnnualSalary(config.streams), config.taxProvince);
-                  const multiplier = taxMode === 'NET' ? (1 - effectiveTaxRate) : 1;
                   const streamAnnualGross = stream.months ? (stream.amount * 12) / stream.months : 0;
-                  const displayAnnual = streamAnnualGross * multiplier;
 
                   return (
                     <div key={stream.id} className="bg-slate-950/50 p-5 rounded-2xl border border-slate-800 flex flex-col text-left">
                       <span className="font-medium text-slate-300 truncate w-full">{stream.name}</span>
                       <span className="text-xs text-slate-500 mb-6">
-                        {formatMoney(displayAnnual, 0)} / yr
+                        {formatMoney(streamAnnualGross, 0)} / yr
                       </span>
                       
                       <div className="mt-auto w-full flex justify-between items-end gap-2">
@@ -493,37 +570,16 @@ export default function App() {
                 <div className="bg-slate-950/50 p-5 rounded-xl border border-slate-800 space-y-6">
                   
                   <div className="space-y-4">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <div className="relative">
-                        <input type="checkbox" className="sr-only" checked={config.useCustomTaxRate} onChange={(e) => setConfig({ ...config, useCustomTaxRate: e.target.checked })} />
-                        <div className={`block w-10 h-6 rounded-full transition-colors ${config.useCustomTaxRate ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
-                        <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${config.useCustomTaxRate ? 'translate-x-4' : ''}`}></div>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-slate-300">
-                        Use Manual Tax Rate
-                      </div>
-                    </label>
-
-                    {config.useCustomTaxRate ? (
-                      <div className="space-y-2 pl-2 border-l-2 border-emerald-500/30 ml-4">
-                        <label className="text-sm text-slate-400">Custom Tax Rate (%)</label>
-                        <div className="relative max-w-xs">
-                          <input type="number" value={config.customTaxRate} onChange={(e) => setConfig({ ...config, customTaxRate: Number(e.target.value) })} className="w-full bg-slate-800 text-white pr-8 pl-3 py-2 rounded-lg outline-none" />
-                          <span className="absolute right-3 top-2.5 text-slate-400">%</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 pl-2 border-l-2 border-slate-700 ml-4">
-                        <label className="text-sm text-slate-400">Tax Province</label>
-                        <select value={config.taxProvince} onChange={(e) => setConfig({ ...config, taxProvince: e.target.value })} className="w-full bg-slate-800 text-white px-3 py-2.5 rounded-lg outline-none appearance-none max-w-xs">
-                          <option value="BC">British Columbia</option>
-                          <option value="AB">Alberta</option>
-                          <option value="ON">Ontario</option>
-                          <option value="QC">Quebec</option>
-                        </select>
-                        <p className="text-xs text-slate-500 mt-1">Used to auto-calculate progressive brackets.</p>
-                      </div>
-                    )}
+                    <div className="space-y-2 border-l-2 border-slate-700 pl-4">
+                      <label className="text-sm text-slate-400">Tax Province</label>
+                      <select value={config.taxProvince} onChange={(e) => setConfig({ ...config, taxProvince: e.target.value })} className="w-full bg-slate-800 text-white px-3 py-2.5 rounded-lg outline-none appearance-none max-w-xs">
+                        <option value="BC">British Columbia</option>
+                        <option value="AB">Alberta</option>
+                        <option value="ON">Ontario</option>
+                        <option value="QC">Quebec</option>
+                      </select>
+                      <p className="text-xs text-slate-500 mt-1">Used to auto-calculate exact progressive brackets, BPA, CPP, and EI.</p>
+                    </div>
                   </div>
 
                   <div className="pt-4 border-t border-slate-800/50">

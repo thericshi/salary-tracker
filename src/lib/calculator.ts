@@ -90,29 +90,53 @@ export const getCurrentPayPeriodStart = (now: Date, type: PayPeriodType, anchorD
   return cycleStart;
 };
 
+export const getCurrentPayPeriodEnd = (start: Date, type: PayPeriodType): Date => {
+  const end = new Date(start);
+  if (type === 'MONTHLY') {
+    end.setMonth(end.getMonth() + 1);
+  } else if (type === 'SEMIMONTHLY') {
+    if (start.getDate() === 1) {
+      end.setDate(16);
+    } else {
+      end.setMonth(end.getMonth() + 1);
+      end.setDate(1);
+    }
+  } else if (type === 'BIWEEKLY') {
+    end.setDate(end.getDate() + 14);
+  } else if (type === 'WEEKLY') {
+    end.setDate(end.getDate() + 7);
+  }
+  return end;
+};
+
 // --- Canadian Progressive Tax Engine ---
 interface TaxBracket { threshold: number; rate: number; }
 
 const calculateBracketTax = (income: number, brackets: TaxBracket[], bpa: number): number => {
   let tax = 0;
-  let taxableIncome = Math.max(0, income - bpa);
   let previousThreshold = 0;
 
+  // 1. Calculate progressive tax across brackets
   for (const bracket of brackets) {
-    const amountInBracket = Math.min(taxableIncome, bracket.threshold - previousThreshold);
-    if (amountInBracket > 0) {
-      tax += amountInBracket * bracket.rate;
+    if (income > previousThreshold) {
+      // Calculate how much income falls specifically into THIS bracket
+      const taxableInThisBracket = Math.min(income, bracket.threshold) - previousThreshold;
+      tax += taxableInThisBracket * bracket.rate;
     }
     previousThreshold = bracket.threshold;
-    if (taxableIncome <= previousThreshold) break;
+    if (income <= previousThreshold) break;
   }
-  return tax;
+
+  // 2. Canadian Basic Personal Amount is a non-refundable tax credit applied at the lowest bracket rate
+  const bpaCredit = bpa * brackets[0].rate;
+  
+  // Tax cannot be reduced below 0 by non-refundable credits
+  return Math.max(0, tax - bpaCredit);
 };
 
-export const calculateEffectiveTaxRate = (annualIncome: number, province: string): number => {
+export const calculateTotalTaxes = (annualIncome: number, province: string): number => {
   if (annualIncome <= 0) return 0;
 
-  // Approximate 2024 Federal Brackets & Basic Personal Amount
   const fedBPA = 15705;
   const fedBrackets: TaxBracket[] = [
     { threshold: 55867, rate: 0.15 },
@@ -122,7 +146,6 @@ export const calculateEffectiveTaxRate = (annualIncome: number, province: string
     { threshold: Infinity, rate: 0.33 }
   ];
 
-  // Approximate 2024 Provincial Brackets & BPAs
   let provBPA = 0;
   let provBrackets: TaxBracket[] = [];
 
@@ -169,7 +192,6 @@ export const calculateEffectiveTaxRate = (annualIncome: number, province: string
       ];
       break;
     default:
-      // Fallback to BC if unknown
       provBPA = 12580;
       provBrackets = [
         { threshold: 47937, rate: 0.0506 },
@@ -182,11 +204,12 @@ export const calculateEffectiveTaxRate = (annualIncome: number, province: string
   const fedTax = calculateBracketTax(annualIncome, fedBrackets, fedBPA);
   const provTax = calculateBracketTax(annualIncome, provBrackets, provBPA);
   
-  // Also approximating CPP/EI deductions to make Net Pay truly accurate
-  // 2024 Limits: CPP max ~$3867, EI max ~$1049
   const cppDeduction = Math.min(Math.max(0, annualIncome - 3500) * 0.0595, 3867.50);
   const eiDeduction = Math.min(annualIncome * 0.0166, 1049.12);
 
-  const totalTaxAndDeductions = fedTax + provTax + cppDeduction + eiDeduction;
-  return totalTaxAndDeductions / annualIncome;
+  return fedTax + provTax + cppDeduction + eiDeduction;
+};
+
+export const calculateNetIncome = (grossIncome: number, province: string): number => {
+  return grossIncome - calculateTotalTaxes(grossIncome, province);
 };

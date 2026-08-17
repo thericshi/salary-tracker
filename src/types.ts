@@ -30,7 +30,5 @@ export interface UserConfig {
   payPeriod: PayPeriodConfig;
   testing?: TestingConfig;
   taxProvince: string; // e.g., 'BC', 'ON', 'AB'
-  useCustomTaxRate: boolean;
-  customTaxRate: number; // Percentage (e.g., 25 for 25%)
   highPrecision: boolean; // Toggle for 4 decimal places vs 2
 }

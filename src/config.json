@@ -1,0 +1,28 @@
+{
+  "streams": [
+    {
+      "id": "1",
+      "name": "Base Salary",
+      "amount": 100000,
+      "months": 12,
+      "startDate": "2026-01-01"
+    }
+  ],
+  "schedule": {
+    "days": [1, 2, 3, 4, 5],
+    "startTime": "09:30",
+    "endTime": "17:30"
+  },
+  "payPeriod": {
+    "type": "BIWEEKLY",
+    "anchorDate": "2026-01-01"
+  },
+  "testing": {
+    "useFakeTime": false,
+    "fakeTime": "2026-12-25T12:00"
+  },
+  "taxProvince": "BC",
+  "useCustomTaxRate": false,
+  "customTaxRate": 25,
+  "highPrecision": false
+}

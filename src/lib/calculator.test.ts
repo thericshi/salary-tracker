@@ -111,6 +111,16 @@ describe('Calculator Engine', () => {
       const periodStart = getCurrentPayPeriodStart(now, 'BIWEEKLY', anchorStr);
       expect(periodStart.getDate()).toBe(21); 
     });
+
+    it('should correctly calculate the end date of a pay period', () => {
+      const start = new Date(2026, 7, 7); // Aug 7
+      
+      const endBiweekly = getCurrentPayPeriodEnd(start, 'BIWEEKLY');
+      expect(endBiweekly.getDate()).toBe(21); // Aug 7 + 14 days
+
+      const endMonthly = getCurrentPayPeriodEnd(start, 'MONTHLY');
+      expect(endMonthly.getMonth()).toBe(8); // Sept 7
+    });
   });
 
   // --- Actual / Tax Engine ---

@@ -32,3 +32,7 @@ export interface UserConfig {
   taxProvince: string; // e.g., 'BC', 'ON', 'AB'
   highPrecision: boolean; // Toggle for 4 decimal places vs 2
 }
+
+export type ViewMode = 'TOTAL' | 'YTD' | 'PERIOD';
+export type TaxMode = 'GROSS' | 'ACTUAL';
+export type StreamDisplayMode = 'EARNED' | 'REMAINING';

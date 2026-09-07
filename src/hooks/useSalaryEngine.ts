@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { UserConfig, ViewMode, TaxMode, StreamDisplayMode } from '../types';
-import { calculateAnnualSalary, formatMoney, formatMoneyParts, getDailyWorkingMilliseconds, parseTime, getWorkingMsBetween, getCurrentPayPeriodStart, getCurrentPayPeriodEnd, calculateNetIncome, buildGraphPath } from '../lib/calculator';
+import { calculateAnnualSalary, formatMoneyParts, getDailyWorkingMilliseconds, parseTime, getWorkingMsBetween, getCurrentPayPeriodStart, getCurrentPayPeriodEnd, calculateNetIncome } from '../lib/calculator';
 
 export function useSalaryEngine(config: UserConfig) {
   const [baseEquivalents, setBaseEquivalents] = useState<{ amount: number, label: string }[]>([{ amount: 0, label: 'year' }]);
@@ -10,7 +10,6 @@ export function useSalaryEngine(config: UserConfig) {
   const [viewMode, setViewMode] = useState<ViewMode>('PERIOD');
   const [taxMode, setTaxMode] = useState<TaxMode>('GROSS');
   const [streamDisplayMode, setStreamDisplayMode] = useState<StreamDisplayMode>('EARNED');
-  const [streamPaths, setStreamPaths] = useState<Record<string, { fill: string, stroke: string }>>({});
 
   const viewModeRef = useRef<ViewMode>(viewMode);
   const taxModeRef = useRef<TaxMode>(taxMode);
@@ -24,61 +23,10 @@ export function useSalaryEngine(config: UserConfig) {
   const todayCentRef = useRef<HTMLSpanElement>(null);
   const totalDollarRef = useRef<HTMLSpanElement>(null);
   const totalCentRef = useRef<HTMLSpanElement>(null);
+  const todayProgressRef = useRef<HTMLDivElement>(null);
+  const aggProgressRef = useRef<HTMLDivElement>(null);
   
   const streamRefs = useRef<{ [key: string]: any }>({});
-
-  // SVG Curve Pre-computation
-  useEffect(() => {
-    const dailyMs = getDailyWorkingMilliseconds(config.schedule);
-    const annualSalaryGross = calculateAnnualSalary(config.streams);
-    const annualMs = dailyMs * config.schedule.days.length * 52;
-
-    const tickStartReal = Date.now();
-    const useFakeTime = config.testing?.useFakeTime && config.testing?.fakeTime;
-    const fakeStartMs = useFakeTime ? new Date(config.testing!.fakeTime).getTime() : tickStartReal;
-    const getNow = () => useFakeTime ? new Date(fakeStartMs + (Date.now() - tickStartReal)) : new Date();
-    
-    const nowRef = getNow();
-    const startOfToday = new Date(nowRef.getFullYear(), nowRef.getMonth(), nowRef.getDate());
-    const startOfYear = new Date(nowRef.getFullYear(), 0, 1);
-    
-    const periodStart = getCurrentPayPeriodStart(nowRef, config.payPeriod.type, config.payPeriod.anchorDate);
-    const periodEnd = getCurrentPayPeriodEnd(periodStart, config.payPeriod.type);
-
-    const paths: Record<string, { fill: string, stroke: string }> = {};
-
-    config.streams.forEach(stream => {
-      let parsedStartDate = startOfToday;
-      if (stream.startDate) {
-        const [year, month, day] = stream.startDate.split('-').map(Number);
-        parsedStartDate = new Date(year, month - 1, day);
-      }
-      
-      let axisStartDate: Date;
-      let axisEndDate: Date;
-
-      if (viewMode === 'TOTAL') {
-        axisStartDate = parsedStartDate;
-        const end = new Date(parsedStartDate);
-        end.setMonth(end.getMonth() + (stream.months || 12));
-        axisEndDate = end;
-      } else if (viewMode === 'YTD') {
-        axisStartDate = new Date(startOfYear);
-        if (parsedStartDate > axisStartDate) axisStartDate = parsedStartDate;
-        axisEndDate = new Date(nowRef.getFullYear() + 1, 0, 1);
-      } else {
-        axisStartDate = new Date(periodStart);
-        if (parsedStartDate > axisStartDate) axisStartDate = parsedStartDate;
-        axisEndDate = periodEnd;
-      }
-
-      paths[stream.id] = buildGraphPath(
-        stream, axisStartDate, axisEndDate, annualSalaryGross, annualMs, dailyMs, config, viewMode, taxMode
-      );
-    });
-
-    setStreamPaths(paths);
-  }, [config, viewMode, taxMode]);
 
   // Main High Performance 60 FPS Loop
   useEffect(() => {
@@ -169,6 +117,39 @@ export function useSalaryEngine(config: UserConfig) {
         }
       }
 
+      // Update Today's Background Progress Bar
+      const todayProgressPct = dailyMs > 0 ? Math.min(100, Math.max(0, (msWorkedToday / dailyMs) * 100)) : 0;
+      if (todayProgressRef.current) {
+        todayProgressRef.current.style.width = `${todayProgressPct.toFixed(4)}%`;
+      }
+
+      // Update Aggregated Panel Background Progress Bar
+      let aggStart = 0;
+      let aggEnd = 0;
+
+      if (viewModeRef.current === 'PERIOD') {
+        aggStart = periodStart.getTime();
+        aggEnd = periodEnd.getTime();
+      } else if (viewModeRef.current === 'YTD') {
+        aggStart = startOfYear.getTime();
+        aggEnd = endOfYear.getTime();
+      } else { // TOTAL
+        if (streamData.length > 0) {
+          aggStart = Math.min(...streamData.map(s => s.historicalStart.getTime()));
+          aggEnd = Math.max(...streamData.map(s => s.endDate.getTime()));
+        }
+      }
+
+      let aggProgressPct = 0;
+      if (aggEnd > aggStart) {
+        const elapsed = now.getTime() - aggStart;
+        aggProgressPct = Math.min(100, Math.max(0, (elapsed / (aggEnd - aggStart)) * 100));
+      }
+
+      if (aggProgressRef.current) {
+        aggProgressRef.current.style.width = `${aggProgressPct.toFixed(4)}%`;
+      }
+
       let totalGrossToday = 0;
       let totalGrossPeriod = 0;
       let totalGrossYtd = 0;
@@ -244,14 +225,19 @@ export function useSalaryEngine(config: UserConfig) {
         
         const progressPct = calendarTotal > 0 ? Math.min(100, Math.max(0, (calendarElapsed / calendarTotal) * 100)) : 0;
         
-        const clipRef = streamRefs.current[`${sData.id}-graph-clip`];
-        if (clipRef) clipRef.setAttribute('width', progressPct.toFixed(4));
+        // Mutate BOTH Progress Bar Widths
+        const barRef = streamRefs.current[`${sData.id}-progress-bar`];
+        if (barRef) barRef.style.width = `${progressPct.toFixed(4)}%`;
+
+        const cardRef = streamRefs.current[`${sData.id}-card-progress`];
+        if (cardRef) cardRef.style.width = `${progressPct.toFixed(4)}%`;
+
         updateText(streamRefs.current[`${sData.id}-graph-pct`], `${progressPct.toFixed(4)}%`);
 
         const finalMax = isActual ? maxGrossAgg * ratioAgg : maxGrossAgg;
-        updateText(streamRefs.current[`${sData.id}-axis-y-max`], formatMoney(finalMax, 0));
-        
         const formatShortDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+        
+        updateText(streamRefs.current[`${sData.id}-axis-y-max`], formatMoneyParts(finalMax, 0).dollars);
         updateText(streamRefs.current[`${sData.id}-axis-x-start`], formatShortDate(axisStartDate));
         updateText(streamRefs.current[`${sData.id}-axis-x-end`], formatShortDate(axisEndDate));
 
@@ -329,7 +315,8 @@ export function useSalaryEngine(config: UserConfig) {
     todayCentRef,
     totalDollarRef,
     totalCentRef,
-    streamRefs,
-    streamPaths
+    todayProgressRef,
+    aggProgressRef,
+    streamRefs
   };
 }

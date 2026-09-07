@@ -5,7 +5,6 @@ import { formatMoney } from '../lib/calculator';
 interface StreamBreakdownProps {
   config: UserConfig;
   streamRefs: React.MutableRefObject<{ [key: string]: any }>;
-  streamPaths: Record<string, { fill: string, stroke: string }>;
   viewMode: ViewMode;
   streamDisplayMode: StreamDisplayMode;
   setStreamDisplayMode: (mode: StreamDisplayMode) => void;
@@ -15,7 +14,6 @@ interface StreamBreakdownProps {
 export function StreamBreakdown({
   config,
   streamRefs,
-  streamPaths,
   viewMode,
   streamDisplayMode,
   setStreamDisplayMode,
@@ -50,70 +48,81 @@ export function StreamBreakdown({
       <div className="w-full grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         {config.streams.map(stream => {
           const streamAnnualGross = stream.months ? (stream.amount * 12) / stream.months : 0;
-          const paths = streamPaths[stream.id] || { fill: 'M0,100 L100,100 Z', stroke: 'M0,100 L100,100' };
 
           return (
-            <div key={stream.id} className="bg-slate-950/50 p-5 rounded-2xl border border-slate-800 flex flex-col text-left">
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex flex-col">
-                  <span className="font-medium text-slate-300 truncate w-full">{stream.name}</span>
-                  <span className="text-xs text-slate-500">{formatMoney(streamAnnualGross, 0)} / yr</span>
-                </div>
-              </div>
-
-              {/* Labeled Graph Area */}
-              <div className="flex flex-col mt-2 mb-6">
-                <div className="flex justify-between items-end mb-1">
-                  <span className="text-[10px] text-slate-500 font-mono tracking-tight" ref={(el) => { streamRefs.current[`${stream.id}-axis-y-max`] = el; }}>$0</span>
-                  <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20" ref={(el) => { streamRefs.current[`${stream.id}-graph-pct`] = el; }}>0.0000%</span>
-                </div>
-
-                <div className="relative w-full h-12 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-inner">
-                  <svg preserveAspectRatio="none" viewBox="0 0 100 100" className="absolute inset-0 w-full h-full text-slate-700 opacity-20">
-                    <path d="M0,100 L100,0 L100,100 Z" fill="currentColor" />
-                    <line x1="0" y1="100" x2="100" y2="0" stroke="currentColor" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-                  </svg>
-                  <svg preserveAspectRatio="none" viewBox="0 0 100 100" className="absolute inset-0 w-full h-full text-emerald-500">
-                    <defs>
-                      <clipPath id={`clip-${stream.id}`}>
-                        <rect ref={(el) => { streamRefs.current[`${stream.id}-graph-clip`] = el; }} x="0" y="0" width="0" height="100" />
-                      </clipPath>
-                    </defs>
-                    <g clipPath={`url(#clip-${stream.id})`}>
-                      <path d={paths.fill} fill="currentColor" fillOpacity="0.2" />
-                      <path d={paths.stroke} stroke="currentColor" fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-                    </g>
-                  </svg>
-                </div>
-
-                <div className="flex justify-between items-center mt-1 text-[10px] text-slate-500 font-mono tracking-tight">
-                  <div className="flex items-center gap-1.5">
-                    <span>$0</span>
-                    <span className="text-slate-700 font-sans">|</span>
-                    <span ref={(el) => { streamRefs.current[`${stream.id}-axis-x-start`] = el; }}>Start</span>
-                  </div>
-                  <span ref={(el) => { streamRefs.current[`${stream.id}-axis-x-end`] = el; }}>End</span>
-                </div>
-              </div>
+            <div key={stream.id} className="group relative bg-slate-950/50 rounded-2xl border border-slate-800 flex flex-col text-left overflow-hidden cursor-default transition-colors duration-500 hover:border-slate-700 hover:bg-slate-900/80 shadow-lg">
               
-              {/* Lower Stats Area */}
-              <div className="mt-auto w-full flex justify-between items-end gap-2">
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
-                    {viewMode === 'TOTAL' ? 'Total' : viewMode === 'YTD' ? 'YTD' : 'Period'}
-                  </span>
-                  <div className={`font-mono tabular-nums tracking-tight font-semibold flex items-baseline ${isWorking ? 'text-emerald-400' : 'text-slate-200'}`}>
-                    <span ref={(el) => { streamRefs.current[`${stream.id}-agg-dollar`] = el; }} className="text-2xl">$0</span>
-                    <span className="text-lg opacity-70 ml-[1px]">.<span ref={(el) => { streamRefs.current[`${stream.id}-agg-cent`] = el; }}>00</span></span>
+              {/* Card Progress Background (Fades out on hover) */}
+              <div 
+                ref={(el) => { streamRefs.current[`${stream.id}-card-progress`] = el; }}
+                className="absolute top-0 left-0 bottom-0 bg-emerald-500/10 group-hover:opacity-0 transition-opacity duration-500 z-0 pointer-events-none"
+                style={{ width: '0%' }}
+              >
+                <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
+              </div>
+
+              {/* Content Layer */}
+              <div className="relative z-10 p-5 flex flex-col h-full">
+                
+                {/* Header */}
+                <div className="flex justify-between items-start">
+                  <div className="flex flex-col">
+                    <span className="font-medium text-slate-300 truncate w-full group-hover:text-white transition-colors">{stream.name}</span>
+                    <span className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">{formatMoney(streamAnnualGross, 0)} / yr</span>
                   </div>
                 </div>
-                <div className="flex flex-col text-right pb-[2px]">
-                  <div className="text-xs font-mono tabular-nums text-slate-400 flex items-baseline justify-end">
-                    <span>Today:&nbsp;</span>
-                    <span ref={(el) => { streamRefs.current[`${stream.id}-today-dollar`] = el; }}>$0</span>
-                    <span className="text-[10px] opacity-80 ml-[1px]">.<span ref={(el) => { streamRefs.current[`${stream.id}-today-cent`] = el; }}>00</span></span>
+
+                {/* Interactive Detailed Progress Bar Area (Expands on hover) */}
+                <div className="transition-all duration-500 ease-out overflow-hidden max-h-0 opacity-0 group-hover:max-h-[120px] group-hover:opacity-100">
+                  <div className="relative w-full h-16 mt-4 mb-2 flex flex-col justify-center">
+                    
+                    {/* Top Stats */}
+                    <div className="absolute top-0 left-0 right-0 flex justify-between items-start pointer-events-none">
+                      <span className="text-[10px] text-slate-500 font-mono tracking-tight" ref={(el) => { streamRefs.current[`${stream.id}-axis-y-max`] = el; }}>$0</span>
+                      <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.2)]" ref={(el) => { streamRefs.current[`${stream.id}-graph-pct`] = el; }}>0.0000%</span>
+                    </div>
+
+                    {/* The Glossy Progress Bar */}
+                    <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80 shadow-[inset_0_3px_8px_rgba(0,0,0,0.6)]">
+                      <div 
+                        ref={(el) => { streamRefs.current[`${stream.id}-progress-bar`] = el; }}
+                        className="absolute top-0 left-0 h-full bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400"
+                        style={{ width: '0%' }}
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent opacity-70 pointer-events-none" />
+                        <div className="absolute top-0 right-0 bottom-0 w-8 bg-gradient-to-r from-transparent to-white/30 pointer-events-none" />
+                      </div>
+                    </div>
+
+                    {/* Bottom Stats */}
+                    <div className="absolute bottom-0 left-0 right-0 flex justify-between items-end text-[10px] text-slate-500 font-mono tracking-tight pointer-events-none">
+                      <span ref={(el) => { streamRefs.current[`${stream.id}-axis-x-start`] = el; }}>Start</span>
+                      <span ref={(el) => { streamRefs.current[`${stream.id}-axis-x-end`] = el; }}>End</span>
+                    </div>
+
                   </div>
                 </div>
+
+                {/* Lower Dollar Breakdowns */}
+                <div className="mt-auto w-full flex justify-between items-end gap-2 pt-3 border-t border-transparent group-hover:border-slate-800/50 transition-colors duration-500">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
+                      {viewMode === 'TOTAL' ? 'Total' : viewMode === 'YTD' ? 'YTD' : 'Period'}
+                    </span>
+                    <div className={`font-mono tabular-nums tracking-tight font-semibold flex items-baseline ${isWorking ? 'text-emerald-400' : 'text-slate-200'}`}>
+                      <span ref={(el) => { streamRefs.current[`${stream.id}-agg-dollar`] = el; }} className="text-2xl">$0</span>
+                      <span className="text-lg opacity-70 ml-[1px]">.<span ref={(el) => { streamRefs.current[`${stream.id}-agg-cent`] = el; }}>00</span></span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col text-right pb-[2px]">
+                    <div className="text-xs font-mono tabular-nums text-slate-400 flex items-baseline justify-end">
+                      <span>Today:&nbsp;</span>
+                      <span ref={(el) => { streamRefs.current[`${stream.id}-today-dollar`] = el; }}>$0</span>
+                      <span className="text-[10px] opacity-80 ml-[1px]">.<span ref={(el) => { streamRefs.current[`${stream.id}-today-cent`] = el; }}>00</span></span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
           );

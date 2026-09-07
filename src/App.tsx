@@ -52,8 +52,9 @@ export default function App() {
     todayCentRef,
     totalDollarRef,
     totalCentRef,
-    streamRefs,
-    streamPaths
+    todayProgressRef,
+    aggProgressRef,
+    streamRefs
   } = useSalaryEngine(config);
 
   return (
@@ -108,12 +109,13 @@ export default function App() {
           todayCentRef={todayCentRef}
           totalDollarRef={totalDollarRef}
           totalCentRef={totalCentRef}
+          todayProgressRef={todayProgressRef}
+          aggProgressRef={aggProgressRef}
         />
 
         <StreamBreakdown 
           config={config}
           streamRefs={streamRefs}
-          streamPaths={streamPaths}
           viewMode={viewMode}
           streamDisplayMode={streamDisplayMode}
           setStreamDisplayMode={setStreamDisplayMode}

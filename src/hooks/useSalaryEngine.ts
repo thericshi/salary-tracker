@@ -7,6 +7,9 @@ export function useSalaryEngine(config: UserConfig) {
   const [isWorking, setIsWorking] = useState(false);
   const [simulatedTimeDisplay, setSimulatedTimeDisplay] = useState('');
   
+  // This state forces the entire engine to cleanly reboot when midnight strikes
+  const [dayRolloverKey, setDayRolloverKey] = useState(Date.now());
+  
   const [viewMode, setViewMode] = useState<ViewMode>('PERIOD');
   const [taxMode, setTaxMode] = useState<TaxMode>('GROSS');
   const [streamDisplayMode, setStreamDisplayMode] = useState<StreamDisplayMode>('EARNED');
@@ -41,7 +44,11 @@ export function useSalaryEngine(config: UserConfig) {
     const fakeStartMs = useFakeTime ? new Date(config.testing!.fakeTime).getTime() : tickStartReal;
 
     const getNow = () => useFakeTime ? new Date(fakeStartMs + (Date.now() - tickStartReal)) : new Date();
+    
+    // Capture the base values for THIS specific day
     const nowRef = getNow();
+    const initialDayOfMonth = nowRef.getDate();
+    
     const startOfToday = new Date(nowRef.getFullYear(), nowRef.getMonth(), nowRef.getDate());
     const startOfYear = new Date(nowRef.getFullYear(), 0, 1);
     const endOfYear = new Date(nowRef.getFullYear() + 1, 0, 1);
@@ -96,6 +103,14 @@ export function useSalaryEngine(config: UserConfig) {
 
     const tick = () => {
       const now = getNow();
+      
+      // Midnight Rollover Detector: 
+      // If the calendar day changes while the app is open, abort the loop and restart the engine.
+      if (now.getDate() !== initialDayOfMonth) {
+        setDayRolloverKey(Date.now());
+        return;
+      }
+
       let msWorkedToday = 0;
       let isWorkingNow = false;
       const todayIsWorkDay = config.schedule.days.includes(now.getDay()) && dailyMs > 0;
@@ -299,7 +314,7 @@ export function useSalaryEngine(config: UserConfig) {
 
     animationFrameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [config]);
+  }, [config, dayRolloverKey]); // Added dayRolloverKey as a dependency
 
   return {
     baseEquivalents,

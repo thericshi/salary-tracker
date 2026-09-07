@@ -5,6 +5,7 @@ import { formatMoney } from '../lib/calculator';
 interface StreamBreakdownProps {
   config: UserConfig;
   streamRefs: React.MutableRefObject<{ [key: string]: any }>;
+  streamPaths: Record<string, { fill: string, stroke: string }>;
   viewMode: ViewMode;
   streamDisplayMode: StreamDisplayMode;
   setStreamDisplayMode: (mode: StreamDisplayMode) => void;
@@ -14,6 +15,7 @@ interface StreamBreakdownProps {
 export function StreamBreakdown({
   config,
   streamRefs,
+  streamPaths,
   viewMode,
   streamDisplayMode,
   setStreamDisplayMode,
@@ -48,6 +50,8 @@ export function StreamBreakdown({
       <div className="w-full grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         {config.streams.map(stream => {
           const streamAnnualGross = stream.months ? (stream.amount * 12) / stream.months : 0;
+          const paths = streamPaths[stream.id] || { fill: 'M0,100 L100,100 Z', stroke: 'M0,100 L100,100' };
+
           return (
             <div key={stream.id} className="bg-slate-950/50 p-5 rounded-2xl border border-slate-800 flex flex-col text-left">
               <div className="flex justify-between items-start mb-2">
@@ -76,8 +80,8 @@ export function StreamBreakdown({
                       </clipPath>
                     </defs>
                     <g clipPath={`url(#clip-${stream.id})`}>
-                      <path d="M0,100 L100,0 L100,100 Z" fill="currentColor" fillOpacity="0.2" />
-                      <line x1="0" y1="100" x2="100" y2="0" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                      <path d={paths.fill} fill="currentColor" fillOpacity="0.2" />
+                      <path d={paths.stroke} stroke="currentColor" fill="none" strokeWidth="2" vectorEffect="non-scaling-stroke" />
                     </g>
                   </svg>
                 </div>

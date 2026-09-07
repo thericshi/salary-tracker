@@ -39,7 +39,7 @@ export default function App() {
   });
 
   const {
-    annualTotalDisplay,
+    baseEquivalents,
     isWorking,
     simulatedTimeDisplay,
     viewMode,
@@ -52,7 +52,8 @@ export default function App() {
     todayCentRef,
     totalDollarRef,
     totalCentRef,
-    streamRefs
+    streamRefs,
+    streamPaths
   } = useSalaryEngine(config);
 
   return (
@@ -89,7 +90,13 @@ export default function App() {
             Total Compensation Tracker
           </h1>
           <p className="text-xl text-slate-500">
-            {formatMoney(annualTotalDisplay, 0)} / year {taxMode === 'ACTUAL' ? 'actual ' : 'base '}equivalent
+            {baseEquivalents.map((eq, i) => (
+              <span key={i}>
+                {formatMoney(eq.amount, 0)} / {eq.label}
+                {i < baseEquivalents.length - 1 ? ' • ' : ' '}
+              </span>
+            ))}
+            {taxMode === 'ACTUAL' ? 'actual ' : 'base '}equivalent
           </p>
         </div>
 
@@ -106,6 +113,7 @@ export default function App() {
         <StreamBreakdown 
           config={config}
           streamRefs={streamRefs}
+          streamPaths={streamPaths}
           viewMode={viewMode}
           streamDisplayMode={streamDisplayMode}
           setStreamDisplayMode={setStreamDisplayMode}

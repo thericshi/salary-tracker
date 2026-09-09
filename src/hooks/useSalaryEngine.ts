@@ -30,8 +30,102 @@ export function useSalaryEngine(config: UserConfig) {
   const aggProgressBaseRef = useRef<HTMLDivElement>(null);
   const aggProgressNewRef = useRef<HTMLDivElement>(null);
   const aggCheckpointRef = useRef<HTMLDivElement>(null);
+
+  // Hardware Accelerated Canvas Refs
+  const todayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const aggCanvasRef = useRef<HTMLCanvasElement>(null);
   
   const streamRefs = useRef<{ [key: string]: any }>({});
+
+  // High-Performance 2D Canvas Grid Builder
+  const updateBoxCanvas = (
+    canvas: HTMLCanvasElement | null, 
+    pct: number, 
+    totalDollars: number, 
+    isBackground: boolean = false
+  ) => {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const W = rect.width;
+    const H = rect.height;
+    
+    if (W <= 0 || H <= 0) return;
+
+    const pixelW = Math.floor(W * dpr);
+    const pixelH = Math.floor(H * dpr);
+
+    if (canvas.width !== pixelW || canvas.height !== pixelH) {
+      canvas.width = pixelW;
+      canvas.height = pixelH;
+    }
+
+    // Cap at 250,000 blocks to prevent WebGL/CPU freezing on massive multi-year totals
+    const totalBlocks = Math.min(250000, Math.max(1, Math.floor(totalDollars)));
+    const aspect = pixelW / pixelH;
+    
+    let cols = Math.ceil(Math.sqrt(totalBlocks * aspect));
+    let rows = Math.ceil(totalBlocks / cols);
+    
+    let gap = 1 * dpr;
+    let boxSize = Math.min((pixelW - (cols - 1) * gap) / cols, (pixelH - (rows - 1) * gap) / rows);
+    
+    // Automatically crush gap if boxes get microscopic so they stay visible as a solid mesh
+    if (boxSize < 1.5 * dpr) {
+      gap = 0;
+      boxSize = Math.min(pixelW / cols, pixelH / rows);
+    }
+
+    const gridW = cols * boxSize + (cols - 1) * gap;
+    const gridH = rows * boxSize + (rows - 1) * gap;
+    const offsetX = (pixelW - gridW) / 2;
+    const offsetY = (pixelH - gridH) / 2;
+
+    ctx.clearRect(0, 0, pixelW, pixelH);
+
+    const filledBoxes = (pct / 100) * totalBlocks;
+    const fullIdx = Math.floor(filledBoxes);
+    const frac = filledBoxes - fullIdx;
+    
+    const emptyOp = isBackground ? 0.05 : 0.15;
+    const fullOp = isBackground ? 0.25 : 1.0;
+    const baseColor = isBackground ? '16, 185, 129' : '52, 211, 153'; 
+
+    // Batch draw fully earned boxes
+    if (fullIdx > 0) {
+      ctx.fillStyle = `rgba(${baseColor}, ${fullOp})`;
+      ctx.beginPath();
+      for (let i = 0; i < Math.min(fullIdx, totalBlocks); i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        ctx.rect(offsetX + col * (boxSize + gap), offsetY + row * (boxSize + gap), boxSize, boxSize);
+      }
+      ctx.fill();
+    }
+
+    // Batch draw empty/future boxes
+    if (fullIdx < totalBlocks - 1) {
+      ctx.fillStyle = `rgba(${baseColor}, ${emptyOp})`;
+      ctx.beginPath();
+      for (let i = fullIdx + 1; i < totalBlocks; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        ctx.rect(offsetX + col * (boxSize + gap), offsetY + row * (boxSize + gap), boxSize, boxSize);
+      }
+      ctx.fill();
+    }
+
+    // Precisely draw the single "active" pulsing box
+    if (fullIdx < totalBlocks) {
+      const col = fullIdx % cols;
+      const row = Math.floor(fullIdx / cols);
+      ctx.fillStyle = `rgba(${baseColor}, ${emptyOp + frac * (fullOp - emptyOp)})`;
+      ctx.fillRect(offsetX + col * (boxSize + gap), offsetY + row * (boxSize + gap), boxSize, boxSize);
+    }
+  };
 
   useEffect(() => {
     let animationFrameId: number;
@@ -137,10 +231,6 @@ export function useSalaryEngine(config: UserConfig) {
         }
       }
 
-      // Update Today's Background Progress Bar (Green only)
-      if (todayProgressBaseRef.current) todayProgressBaseRef.current.style.width = `${todayEarnedPct.toFixed(4)}%`;
-
-      // Aggregated Panel Progress Bars
       let aggStart = 0;
       let aggEnd = 0;
 
@@ -150,7 +240,7 @@ export function useSalaryEngine(config: UserConfig) {
       } else if (viewModeRef.current === 'YTD') {
         aggStart = startOfYear.getTime();
         aggEnd = endOfYear.getTime();
-      } else { // TOTAL
+      } else { 
         if (streamData.length > 0) {
           aggStart = Math.min(...streamData.map(s => s.historicalStart.getTime()));
           aggEnd = Math.max(...streamData.map(s => s.endDate.getTime()));
@@ -158,34 +248,24 @@ export function useSalaryEngine(config: UserConfig) {
       }
 
       const aggTotalTime = aggEnd - aggStart;
+      let aggEarnedPct = 0;
+      let aggIncompletePct = 0;
+      let aggCheckpointPct = -1;
+
       if (aggTotalTime > 0) {
         const elapsed = now.getTime() - aggStart;
+        aggEarnedPct = Math.min(100, Math.max(0, (elapsed / aggTotalTime) * 100));
         
-        // Completed/Earned is Green (0 -> NOW)
-        const aggEarnedPct = Math.min(100, Math.max(0, (elapsed / aggTotalTime) * 100));
-        
-        // Incomplete is Yellow (NOW -> End of Current Period)
         const incompleteStart = Math.max(aggStart, now.getTime());
         const incompleteEnd = Math.min(aggEnd, periodEnd.getTime());
         const incompleteTime = incompleteEnd - incompleteStart;
-        const aggIncompletePct = incompleteTime > 0 ? (incompleteTime / aggTotalTime) * 100 : 0;
+        aggIncompletePct = incompleteTime > 0 ? (incompleteTime / aggTotalTime) * 100 : 0;
 
-        if (aggProgressBaseRef.current) aggProgressBaseRef.current.style.width = `${aggEarnedPct.toFixed(4)}%`;
-        if (aggProgressNewRef.current) {
-          aggProgressNewRef.current.style.left = `${aggEarnedPct.toFixed(4)}%`;
-          aggProgressNewRef.current.style.width = `${aggIncompletePct.toFixed(4)}%`;
-        }
-
-        let aggCheckpointPct = -1;
         if (viewModeRef.current !== 'PERIOD') {
           const checkpointElapsed = periodStart.getTime() - aggStart;
           if (checkpointElapsed > 0 && checkpointElapsed <= aggTotalTime) {
             aggCheckpointPct = (checkpointElapsed / aggTotalTime) * 100;
           }
-        }
-        if (aggCheckpointRef.current) {
-          aggCheckpointRef.current.style.display = (aggCheckpointPct > 0 && aggCheckpointPct < 100) ? 'block' : 'none';
-          aggCheckpointRef.current.style.left = `${aggCheckpointPct.toFixed(4)}%`;
         }
       }
 
@@ -193,6 +273,8 @@ export function useSalaryEngine(config: UserConfig) {
       let totalGrossPeriod = 0;
       let totalGrossYtd = 0;
       let totalGrossTotal = 0;
+      let maxGrossTodayGlobal = 0;
+      let maxGrossAggGlobal = 0;
 
       streamData.forEach((sData) => {
         const streamGrossToday = sData.isStartedToday ? (msWorkedToday * sData.streamRateGross) : 0;
@@ -200,6 +282,11 @@ export function useSalaryEngine(config: UserConfig) {
         totalGrossPeriod += (sData.msPeriod * sData.streamRateGross) + streamGrossToday;
         totalGrossYtd += (sData.msYtd * sData.streamRateGross) + streamGrossToday;
         totalGrossTotal += (sData.msHistorical * sData.streamRateGross) + streamGrossToday;
+
+        maxGrossTodayGlobal += sData.isStartedToday && todayIsWorkDay ? (dailyMs * sData.streamRateGross) : 0;
+        if (viewModeRef.current === 'TOTAL') maxGrossAggGlobal += sData.amount;
+        else if (viewModeRef.current === 'YTD') maxGrossAggGlobal += sData.maxGrossYtd;
+        else maxGrossAggGlobal += sData.maxGrossPeriod;
       });
 
       const totalNetYtd = calculateNetIncome(totalGrossYtd, config.taxProvince);
@@ -216,6 +303,30 @@ export function useSalaryEngine(config: UserConfig) {
       else if (viewModeRef.current === 'YTD') displayTotalAgg = isActual ? totalNetYtd : totalGrossYtd;
       else if (viewModeRef.current === 'PERIOD') displayTotalAgg = isActual ? exactNetPeriod : totalGrossPeriod;
 
+      const ratioToday = totalGrossToday > 0 ? (exactNetToday / totalGrossToday) : 1;
+      const ratioPeriod = totalGrossPeriod > 0 ? (exactNetPeriod / totalGrossPeriod) : 1;
+      const ratioAggGlobal = viewModeRef.current === 'PERIOD' ? ratioPeriod : effectiveYtdRate;
+
+      // Master Display Router: Box Mode vs Standard Mode
+      if (config.showDollarBlocks) {
+        const todayMaxGlobal = isActual ? maxGrossTodayGlobal * ratioToday : maxGrossTodayGlobal;
+        updateBoxCanvas(todayCanvasRef.current, todayEarnedPct, todayMaxGlobal, true);
+
+        const aggMaxGlobal = isActual ? maxGrossAggGlobal * ratioAggGlobal : maxGrossAggGlobal;
+        updateBoxCanvas(aggCanvasRef.current, aggEarnedPct, aggMaxGlobal, true);
+      } else {
+        if (todayProgressBaseRef.current) todayProgressBaseRef.current.style.width = `${todayEarnedPct.toFixed(4)}%`;
+        if (aggProgressBaseRef.current) aggProgressBaseRef.current.style.width = `${aggEarnedPct.toFixed(4)}%`;
+        if (aggProgressNewRef.current) {
+          aggProgressNewRef.current.style.left = `${aggEarnedPct.toFixed(4)}%`;
+          aggProgressNewRef.current.style.width = `${aggIncompletePct.toFixed(4)}%`;
+        }
+        if (aggCheckpointRef.current) {
+          aggCheckpointRef.current.style.display = (aggCheckpointPct > 0 && aggCheckpointPct < 100) ? 'block' : 'none';
+          aggCheckpointRef.current.style.left = `${aggCheckpointPct.toFixed(4)}%`;
+        }
+      }
+
       const updateText = (ref: HTMLElement | null, text: string) => { if (ref && ref.innerText !== text) ref.innerText = text; };
 
       const { dollars: tDol, cents: tCent } = formatMoneyParts(displayTotalToday, numDecimals);
@@ -225,9 +336,6 @@ export function useSalaryEngine(config: UserConfig) {
       const { dollars: totDol, cents: totCent } = formatMoneyParts(displayTotalAgg, numDecimals);
       updateText(totalDollarRef.current, totDol);
       updateText(totalCentRef.current, totCent);
-      
-      const ratioToday = totalGrossToday > 0 ? (exactNetToday / totalGrossToday) : 1;
-      const ratioPeriod = totalGrossPeriod > 0 ? (exactNetPeriod / totalGrossPeriod) : 1;
       
       streamData.forEach(sData => {
         const streamGrossToday = sData.isStartedToday ? msWorkedToday * sData.streamRateGross : 0;
@@ -262,33 +370,13 @@ export function useSalaryEngine(config: UserConfig) {
         let calendarElapsed = now.getTime() - axisStartDate.getTime();
         if (calendarElapsed < 0) calendarElapsed = 0;
         
-        // Green: Completed up to NOW
         const earnedPct = calendarTotal > 0 ? Math.min(100, Math.max(0, (calendarElapsed / calendarTotal) * 100)) : 0;
         
-        // Yellow: Incomplete remainder of current period
         const incompleteStart = Math.max(axisStartDate.getTime(), now.getTime());
         const incompleteEnd = Math.min(axisEndDate.getTime(), periodEnd.getTime());
         const incompleteTime = incompleteEnd - incompleteStart;
         const incompletePct = (calendarTotal > 0 && incompleteTime > 0) ? (incompleteTime / calendarTotal) * 100 : 0;
 
-        // Detailed Progress Bars (Flex Container)
-        const baseBarRef = streamRefs.current[`${sData.id}-progress-base`];
-        if (baseBarRef) baseBarRef.style.width = `${earnedPct.toFixed(4)}%`;
-
-        const newBarRef = streamRefs.current[`${sData.id}-progress-new`];
-        if (newBarRef) newBarRef.style.width = `${incompletePct.toFixed(4)}%`;
-
-        // Card Background Bars (Absolute Container)
-        const cardBaseRef = streamRefs.current[`${sData.id}-card-progress-base`];
-        if (cardBaseRef) cardBaseRef.style.width = `${earnedPct.toFixed(4)}%`;
-
-        const cardNewRef = streamRefs.current[`${sData.id}-card-progress-new`];
-        if (cardNewRef) {
-          cardNewRef.style.left = `${earnedPct.toFixed(4)}%`;
-          cardNewRef.style.width = `${incompletePct.toFixed(4)}%`;
-        }
-
-        // Checkpoint
         let checkpointPct = -1;
         if (viewModeRef.current !== 'PERIOD') {
           const checkpointElapsed = periodStart.getTime() - axisStartDate.getTime();
@@ -296,24 +384,44 @@ export function useSalaryEngine(config: UserConfig) {
             checkpointPct = (checkpointElapsed / calendarTotal) * 100;
           }
         }
-        
-        const checkpointBarRef = streamRefs.current[`${sData.id}-checkpoint-bar`];
-        if (checkpointBarRef) {
-          checkpointBarRef.style.display = (checkpointPct > 0 && checkpointPct < 100) ? 'block' : 'none';
-          checkpointBarRef.style.left = `${checkpointPct.toFixed(4)}%`;
-        }
 
-        const cardCheckpointRef = streamRefs.current[`${sData.id}-card-checkpoint`];
-        if (cardCheckpointRef) {
-          cardCheckpointRef.style.display = (checkpointPct > 0 && checkpointPct < 100) ? 'block' : 'none';
-          cardCheckpointRef.style.left = `${checkpointPct.toFixed(4)}%`;
+        const finalMax = isActual ? maxGrossAgg * ratioAgg : maxGrossAgg;
+
+        if (config.showDollarBlocks) {
+          updateBoxCanvas(streamRefs.current[`${sData.id}-card-canvas`], earnedPct, finalMax, true);
+          updateBoxCanvas(streamRefs.current[`${sData.id}-detail-canvas`], earnedPct, finalMax, false);
+        } else {
+          const baseBarRef = streamRefs.current[`${sData.id}-progress-base`];
+          if (baseBarRef) baseBarRef.style.width = `${earnedPct.toFixed(4)}%`;
+
+          const newBarRef = streamRefs.current[`${sData.id}-progress-new`];
+          if (newBarRef) newBarRef.style.width = `${incompletePct.toFixed(4)}%`;
+
+          const cardBaseRef = streamRefs.current[`${sData.id}-card-progress-base`];
+          if (cardBaseRef) cardBaseRef.style.width = `${earnedPct.toFixed(4)}%`;
+
+          const cardNewRef = streamRefs.current[`${sData.id}-card-progress-new`];
+          if (cardNewRef) {
+            cardNewRef.style.left = `${earnedPct.toFixed(4)}%`;
+            cardNewRef.style.width = `${incompletePct.toFixed(4)}%`;
+          }
+
+          const checkpointBarRef = streamRefs.current[`${sData.id}-checkpoint-bar`];
+          if (checkpointBarRef) {
+            checkpointBarRef.style.display = (checkpointPct > 0 && checkpointPct < 100) ? 'block' : 'none';
+            checkpointBarRef.style.left = `${checkpointPct.toFixed(4)}%`;
+          }
+
+          const cardCheckpointRef = streamRefs.current[`${sData.id}-card-checkpoint`];
+          if (cardCheckpointRef) {
+            cardCheckpointRef.style.display = (checkpointPct > 0 && checkpointPct < 100) ? 'block' : 'none';
+            cardCheckpointRef.style.left = `${checkpointPct.toFixed(4)}%`;
+          }
         }
 
         updateText(streamRefs.current[`${sData.id}-graph-pct`], `${earnedPct.toFixed(4)}%`);
 
-        const finalMax = isActual ? maxGrossAgg * ratioAgg : maxGrossAgg;
         const formatShortDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-        
         updateText(streamRefs.current[`${sData.id}-axis-y-max`], formatMoneyParts(finalMax, 0).dollars);
         updateText(streamRefs.current[`${sData.id}-axis-x-start`], formatShortDate(axisStartDate));
         updateText(streamRefs.current[`${sData.id}-axis-x-end`], formatShortDate(axisEndDate));
@@ -395,6 +503,8 @@ export function useSalaryEngine(config: UserConfig) {
     aggProgressBaseRef,
     aggProgressNewRef,
     aggCheckpointRef,
+    todayCanvasRef,
+    aggCanvasRef,
     streamRefs
   };
 }

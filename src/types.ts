@@ -31,6 +31,7 @@ export interface UserConfig {
   testing?: TestingConfig;
   taxProvince: string; // e.g., 'BC', 'ON', 'AB'
   highPrecision: boolean; // Toggle for 4 decimal places vs 2
+  showDollarBlocks: boolean; // Toggle visual grid blocks
 }
 
 export type ViewMode = 'TOTAL' | 'YTD' | 'PERIOD';

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Settings, X, Plus, Trash2, Clock, CalendarDays, DollarSign, Download, Upload, Copy, FileJson, Database, Briefcase, Landmark, Monitor, Beaker } from 'lucide-react';
+import { Settings, X, Plus, Trash2, Clock, CalendarDays, DollarSign, Download, Upload, Copy, FileJson, Database, Briefcase, Landmark, Monitor, Beaker, Grid } from 'lucide-react';
 import { UserConfig, PayPeriodType } from '../types';
 
 interface SettingsModalProps {
@@ -170,7 +170,8 @@ export function SettingsModal({ config, setConfig, onClose, defaultConfig }: Set
                   <p className="text-xs text-slate-500 mt-1">Used to auto-calculate exact progressive brackets, BPA, CPP, and EI.</p>
                 </div>
               </div>
-              <div className="pt-4 border-t border-slate-800/50">
+              
+              <div className="pt-4 border-t border-slate-800/50 space-y-4">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <div className="relative">
                     <input type="checkbox" className="sr-only" checked={config.highPrecision} onChange={(e) => setConfig({ ...config, highPrecision: e.target.checked })} />
@@ -180,6 +181,18 @@ export function SettingsModal({ config, setConfig, onClose, defaultConfig }: Set
                   <div className="flex items-center gap-2 text-sm text-slate-300">
                     <Monitor size={16} className="text-slate-500" />
                     High Precision Numbers (4 Decimals)
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <div className="relative">
+                    <input type="checkbox" className="sr-only" checked={config.showDollarBlocks} onChange={(e) => setConfig({ ...config, showDollarBlocks: e.target.checked })} />
+                    <div className={`block w-10 h-6 rounded-full transition-colors ${config.showDollarBlocks ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
+                    <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${config.showDollarBlocks ? 'translate-x-4' : ''}`}></div>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <Grid size={16} className="text-slate-500" />
+                    Show Dollar Blocks in Bars
                   </div>
                 </label>
               </div>

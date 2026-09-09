@@ -50,34 +50,42 @@ export function StreamBreakdown({
           const streamAnnualGross = stream.months ? (stream.amount * 12) / stream.months : 0;
 
           return (
-            <div key={stream.id} className="group relative bg-slate-950/50 rounded-2xl border border-slate-800 flex flex-col text-left overflow-hidden cursor-default transition-colors duration-500 hover:border-slate-700 hover:bg-slate-900/80 shadow-lg">
+            <div 
+              key={stream.id} 
+              className="group relative bg-slate-950/50 rounded-2xl border border-slate-800 flex flex-col text-left overflow-hidden cursor-default transition-colors duration-500 hover:border-slate-700 hover:bg-slate-900/80 shadow-lg"
+            >
               
-              {/* Card Progress Background Split */}
-              <div className="absolute inset-0 group-hover:opacity-0 transition-opacity duration-500 z-0 pointer-events-none">
-                <div 
-                  ref={(el) => { streamRefs.current[`${stream.id}-card-progress-base`] = el; }}
-                  className="absolute top-0 left-0 bottom-0 bg-emerald-500/10"
-                  style={{ width: '0%' }}
-                >
-                  <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
-                </div>
-                <div 
-                  ref={(el) => { streamRefs.current[`${stream.id}-card-progress-new`] = el; }}
-                  className="absolute top-0 bottom-0 bg-yellow-500/10"
-                  style={{ left: '0%', width: '0%' }}
-                >
-                  <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-yellow-500/50 shadow-[0_0_12px_rgba(234,179,8,0.8)]" />
-                </div>
-              </div>
+              {config.showDollarBlocks ? (
+                <canvas 
+                  ref={(el) => { streamRefs.current[`${stream.id}-card-canvas`] = el; }}
+                  className="absolute inset-0 w-full h-full z-0 pointer-events-none group-hover:opacity-0 transition-opacity duration-500" 
+                />
+              ) : (
+                <>
+                  <div className="absolute inset-0 group-hover:opacity-0 transition-opacity duration-500 z-0 pointer-events-none">
+                    <div 
+                      ref={(el) => { streamRefs.current[`${stream.id}-card-progress-base`] = el; }}
+                      className="absolute top-0 left-0 bottom-0 bg-emerald-500/10"
+                      style={{ width: '0%' }}
+                    >
+                      <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
+                    </div>
+                    <div 
+                      ref={(el) => { streamRefs.current[`${stream.id}-card-progress-new`] = el; }}
+                      className="absolute top-0 bottom-0 bg-yellow-500/10"
+                      style={{ left: '0%', width: '0%' }}
+                    >
+                      <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-yellow-500/50 shadow-[0_0_12px_rgba(234,179,8,0.8)]" />
+                    </div>
+                  </div>
+                  <div 
+                    ref={(el) => { streamRefs.current[`${stream.id}-card-checkpoint`] = el; }}
+                    className="absolute top-0 bottom-0 w-[1px] border-l border-dashed border-slate-500/50 group-hover:opacity-0 transition-opacity duration-500 z-0 pointer-events-none"
+                    style={{ display: 'none', left: '0%' }}
+                  />
+                </>
+              )}
 
-              {/* Card Checkpoint Line (Previous Period End) */}
-              <div 
-                ref={(el) => { streamRefs.current[`${stream.id}-card-checkpoint`] = el; }}
-                className="absolute top-0 bottom-0 w-[1px] border-l border-dashed border-slate-500/50 group-hover:opacity-0 transition-opacity duration-500 z-0 pointer-events-none"
-                style={{ display: 'none', left: '0%' }}
-              />
-
-              {/* Content Layer */}
               <div className="relative z-10 p-5 flex flex-col h-full">
                 
                 <div className="flex justify-between items-start">
@@ -87,48 +95,46 @@ export function StreamBreakdown({
                   </div>
                 </div>
 
-                {/* Detailed Progress Area */}
                 <div className="transition-all duration-500 ease-out overflow-hidden max-h-0 opacity-0 group-hover:max-h-[120px] group-hover:opacity-100">
                   <div className="relative w-full h-16 mt-4 mb-2 flex flex-col justify-center">
                     
-                    {/* Top Stats */}
                     <div className="absolute top-0 left-0 right-0 flex justify-between items-start pointer-events-none">
                       <span className="text-[10px] text-slate-500 font-mono tracking-tight" ref={(el) => { streamRefs.current[`${stream.id}-axis-y-max`] = el; }}>$0</span>
                       <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.2)]" ref={(el) => { streamRefs.current[`${stream.id}-graph-pct`] = el; }}>0.0000%</span>
                     </div>
 
-                    {/* Glossy Progress Bar Container */}
-                    <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80 shadow-[inset_0_3px_8px_rgba(0,0,0,0.6)] flex">
-                      
-                      {/* Base Progress (Emerald) */}
-                      <div 
-                        ref={(el) => { streamRefs.current[`${stream.id}-progress-base`] = el; }}
-                        className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 relative"
-                        style={{ width: '0%' }}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent opacity-70 pointer-events-none" />
-                      </div>
+                    {config.showDollarBlocks ? (
+                      <canvas 
+                        ref={(el) => { streamRefs.current[`${stream.id}-detail-canvas`] = el; }}
+                        className="w-full h-10 rounded-sm pointer-events-none" 
+                      />
+                    ) : (
+                      <>
+                        <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 h-3 bg-slate-950 rounded-full overflow-hidden border border-slate-800/80 shadow-[inset_0_3px_8px_rgba(0,0,0,0.6)] flex">
+                          <div 
+                            ref={(el) => { streamRefs.current[`${stream.id}-progress-base`] = el; }}
+                            className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 relative"
+                            style={{ width: '0%' }}
+                          >
+                            <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent opacity-70 pointer-events-none" />
+                          </div>
+                          <div 
+                            ref={(el) => { streamRefs.current[`${stream.id}-progress-new`] = el; }}
+                            className="h-full bg-gradient-to-r from-yellow-600 via-yellow-500 to-amber-400 relative"
+                            style={{ width: '0%' }}
+                          >
+                            <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent opacity-70 pointer-events-none" />
+                            <div className="absolute top-0 right-0 bottom-0 w-8 bg-gradient-to-r from-transparent to-white/30 pointer-events-none" />
+                          </div>
+                        </div>
+                        <div 
+                          ref={(el) => { streamRefs.current[`${stream.id}-checkpoint-bar`] = el; }}
+                          className="absolute top-1/2 -translate-y-1/2 h-5 w-[2px] bg-slate-300 z-20 pointer-events-none shadow-[0_0_4px_rgba(255,255,255,0.8)]"
+                          style={{ display: 'none', left: '0%' }}
+                        />
+                      </>
+                    )}
 
-                      {/* New Progress (Yellow) */}
-                      <div 
-                        ref={(el) => { streamRefs.current[`${stream.id}-progress-new`] = el; }}
-                        className="h-full bg-gradient-to-r from-yellow-600 via-yellow-500 to-amber-400 relative"
-                        style={{ width: '0%' }}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent opacity-70 pointer-events-none" />
-                        <div className="absolute top-0 right-0 bottom-0 w-8 bg-gradient-to-r from-transparent to-white/30 pointer-events-none" />
-                      </div>
-
-                    </div>
-
-                    {/* Detailed Checkpoint Line */}
-                    <div 
-                      ref={(el) => { streamRefs.current[`${stream.id}-checkpoint-bar`] = el; }}
-                      className="absolute top-1/2 -translate-y-1/2 h-5 w-[2px] bg-slate-300 z-20 pointer-events-none shadow-[0_0_4px_rgba(255,255,255,0.8)]"
-                      style={{ display: 'none', left: '0%' }}
-                    />
-
-                    {/* Bottom Stats */}
                     <div className="absolute bottom-0 left-0 right-0 flex justify-between items-end text-[10px] text-slate-500 font-mono tracking-tight pointer-events-none">
                       <span ref={(el) => { streamRefs.current[`${stream.id}-axis-x-start`] = el; }}>Start</span>
                       <span ref={(el) => { streamRefs.current[`${stream.id}-axis-x-end`] = el; }}>End</span>
@@ -137,7 +143,6 @@ export function StreamBreakdown({
                   </div>
                 </div>
 
-                {/* Lower Dollar Breakdowns */}
                 <div className="mt-auto w-full flex justify-between items-end gap-2 pt-3 border-t border-transparent group-hover:border-slate-800/50 transition-colors duration-500">
                   <div className="flex flex-col">
                     <span className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">

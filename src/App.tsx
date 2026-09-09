@@ -23,6 +23,7 @@ export default function App() {
     if (!parsed.testing) parsed.testing = { useFakeTime: false, fakeTime: '' };
     if (!parsed.taxProvince) parsed.taxProvince = 'BC';
     if (parsed.highPrecision === undefined) parsed.highPrecision = false;
+    if (parsed.showDollarBlocks === undefined) parsed.showDollarBlocks = false;
     
     delete (parsed as any).useCustomTaxRate;
     delete (parsed as any).customTaxRate;
@@ -55,6 +56,8 @@ export default function App() {
     aggProgressBaseRef,
     aggProgressNewRef,
     aggCheckpointRef,
+    todayCanvasRef,
+    aggCanvasRef,
     streamRefs
   } = useSalaryEngine(config);
 
@@ -103,6 +106,7 @@ export default function App() {
         </div>
 
         <SummaryPanels 
+          config={config}
           isWorking={isWorking}
           viewMode={viewMode}
           setViewMode={setViewMode}
@@ -114,6 +118,8 @@ export default function App() {
           aggProgressBaseRef={aggProgressBaseRef}
           aggProgressNewRef={aggProgressNewRef}
           aggCheckpointRef={aggCheckpointRef}
+          todayCanvasRef={todayCanvasRef}
+          aggCanvasRef={aggCanvasRef}
         />
 
         <StreamBreakdown 

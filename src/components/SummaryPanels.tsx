@@ -8,8 +8,10 @@ interface SummaryPanelsProps {
   todayCentRef: React.RefObject<HTMLSpanElement>;
   totalDollarRef: React.RefObject<HTMLSpanElement>;
   totalCentRef: React.RefObject<HTMLSpanElement>;
-  todayProgressRef: React.RefObject<HTMLDivElement>;
-  aggProgressRef: React.RefObject<HTMLDivElement>;
+  todayProgressBaseRef: React.RefObject<HTMLDivElement>;
+  aggProgressBaseRef: React.RefObject<HTMLDivElement>;
+  aggProgressNewRef: React.RefObject<HTMLDivElement>;
+  aggCheckpointRef: React.RefObject<HTMLDivElement>;
 }
 
 export function SummaryPanels({
@@ -20,22 +22,26 @@ export function SummaryPanels({
   todayCentRef,
   totalDollarRef,
   totalCentRef,
-  todayProgressRef,
-  aggProgressRef
+  todayProgressBaseRef,
+  aggProgressBaseRef,
+  aggProgressNewRef,
+  aggCheckpointRef
 }: SummaryPanelsProps) {
   return (
     <div className="grid gap-6 md:gap-8 md:grid-cols-2">
       
-      {/* Earned Today Panel with Background Progress Bar */}
+      {/* Earned Today Panel */}
       <div className="relative overflow-hidden bg-slate-900/50 border border-slate-800 p-8 rounded-3xl flex flex-col items-center justify-center shadow-2xl group">
         
-        {/* Animated Background Fill */}
-        <div 
-          ref={todayProgressRef}
-          className="absolute top-0 left-0 bottom-0 bg-emerald-500/10 z-0 pointer-events-none"
-          style={{ width: '0%' }}
-        >
-          <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
+        {/* Animated Background Fill (Green only for Today) */}
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <div 
+            ref={todayProgressBaseRef}
+            className="absolute top-0 left-0 bottom-0 bg-emerald-500/10"
+            style={{ width: '0%' }}
+          >
+            <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
+          </div>
         </div>
 
         {/* Foreground Content */}
@@ -50,17 +56,33 @@ export function SummaryPanels({
         </div>
       </div>
 
-      {/* Aggregated Panel with Background Progress Bar */}
+      {/* Aggregated Panel */}
       <div className="relative overflow-hidden bg-slate-900/50 border border-slate-800 p-6 pt-5 rounded-3xl flex flex-col items-center shadow-2xl group">
         
-        {/* Animated Background Fill */}
-        <div 
-          ref={aggProgressRef}
-          className="absolute top-0 left-0 bottom-0 bg-emerald-500/10 z-0 pointer-events-none"
-          style={{ width: '0%' }}
-        >
-          <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
+        {/* Split Animated Background Fill */}
+        <div className="absolute inset-0 z-0 pointer-events-none">
+          <div 
+            ref={aggProgressBaseRef}
+            className="absolute top-0 left-0 bottom-0 bg-emerald-500/10"
+            style={{ width: '0%' }}
+          >
+            <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
+          </div>
+          <div 
+            ref={aggProgressNewRef}
+            className="absolute top-0 bottom-0 bg-yellow-500/10"
+            style={{ left: '0%', width: '0%' }}
+          >
+            <div className="absolute top-0 right-0 bottom-0 w-[1px] bg-yellow-500/50 shadow-[0_0_12px_rgba(234,179,8,0.8)]" />
+          </div>
         </div>
+
+        {/* Checkpoint Line (Previous Period End) */}
+        <div 
+          ref={aggCheckpointRef}
+          className="absolute top-0 bottom-0 w-[1px] border-l border-dashed border-slate-500 z-0 pointer-events-none"
+          style={{ display: 'none', left: '0%' }}
+        />
 
         {/* Foreground Content */}
         <div className="relative z-10 flex flex-col items-center w-full">

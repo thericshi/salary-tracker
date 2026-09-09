@@ -7,7 +7,6 @@ export function useSalaryEngine(config: UserConfig) {
   const [isWorking, setIsWorking] = useState(false);
   const [simulatedTimeDisplay, setSimulatedTimeDisplay] = useState('');
   
-  // This state forces the entire engine to cleanly reboot when midnight strikes
   const [dayRolloverKey, setDayRolloverKey] = useState(Date.now());
   
   const [viewMode, setViewMode] = useState<ViewMode>('PERIOD');
@@ -26,12 +25,14 @@ export function useSalaryEngine(config: UserConfig) {
   const todayCentRef = useRef<HTMLSpanElement>(null);
   const totalDollarRef = useRef<HTMLSpanElement>(null);
   const totalCentRef = useRef<HTMLSpanElement>(null);
-  const todayProgressRef = useRef<HTMLDivElement>(null);
-  const aggProgressRef = useRef<HTMLDivElement>(null);
+  
+  const todayProgressBaseRef = useRef<HTMLDivElement>(null);
+  const aggProgressBaseRef = useRef<HTMLDivElement>(null);
+  const aggProgressNewRef = useRef<HTMLDivElement>(null);
+  const aggCheckpointRef = useRef<HTMLDivElement>(null);
   
   const streamRefs = useRef<{ [key: string]: any }>({});
 
-  // Main High Performance 60 FPS Loop
   useEffect(() => {
     let animationFrameId: number;
 
@@ -45,9 +46,8 @@ export function useSalaryEngine(config: UserConfig) {
 
     const getNow = () => useFakeTime ? new Date(fakeStartMs + (Date.now() - tickStartReal)) : new Date();
     
-    // Capture the base values for THIS specific day
     const nowRef = getNow();
-    const initialDayOfMonth = nowRef.getDate();
+    const initialDateString = nowRef.toDateString(); 
     
     const startOfToday = new Date(nowRef.getFullYear(), nowRef.getMonth(), nowRef.getDate());
     const startOfYear = new Date(nowRef.getFullYear(), 0, 1);
@@ -104,9 +104,7 @@ export function useSalaryEngine(config: UserConfig) {
     const tick = () => {
       const now = getNow();
       
-      // Midnight Rollover Detector: 
-      // If the calendar day changes while the app is open, abort the loop and restart the engine.
-      if (now.getDate() !== initialDayOfMonth) {
+      if (now.toDateString() !== initialDateString) {
         setDayRolloverKey(Date.now());
         return;
       }
@@ -114,6 +112,8 @@ export function useSalaryEngine(config: UserConfig) {
       let msWorkedToday = 0;
       let isWorkingNow = false;
       const todayIsWorkDay = config.schedule.days.includes(now.getDay()) && dailyMs > 0;
+
+      let todayEarnedPct = 0;
 
       if (todayIsWorkDay) {
         const startTime = new Date(now);
@@ -126,19 +126,21 @@ export function useSalaryEngine(config: UserConfig) {
 
         if (now > endTime) {
           msWorkedToday = dailyMs;
-        } else if (now >= startTime && now <= endTime) {
+          todayEarnedPct = 100;
+        } else if (now < startTime) {
+          msWorkedToday = 0;
+          todayEarnedPct = 0;
+        } else {
           msWorkedToday = now.getTime() - startTime.getTime();
           isWorkingNow = true;
+          todayEarnedPct = Math.min(100, Math.max(0, (msWorkedToday / dailyMs) * 100));
         }
       }
 
-      // Update Today's Background Progress Bar
-      const todayProgressPct = dailyMs > 0 ? Math.min(100, Math.max(0, (msWorkedToday / dailyMs) * 100)) : 0;
-      if (todayProgressRef.current) {
-        todayProgressRef.current.style.width = `${todayProgressPct.toFixed(4)}%`;
-      }
+      // Update Today's Background Progress Bar (Green only)
+      if (todayProgressBaseRef.current) todayProgressBaseRef.current.style.width = `${todayEarnedPct.toFixed(4)}%`;
 
-      // Update Aggregated Panel Background Progress Bar
+      // Aggregated Panel Progress Bars
       let aggStart = 0;
       let aggEnd = 0;
 
@@ -155,14 +157,36 @@ export function useSalaryEngine(config: UserConfig) {
         }
       }
 
-      let aggProgressPct = 0;
-      if (aggEnd > aggStart) {
+      const aggTotalTime = aggEnd - aggStart;
+      if (aggTotalTime > 0) {
         const elapsed = now.getTime() - aggStart;
-        aggProgressPct = Math.min(100, Math.max(0, (elapsed / (aggEnd - aggStart)) * 100));
-      }
+        
+        // Completed/Earned is Green (0 -> NOW)
+        const aggEarnedPct = Math.min(100, Math.max(0, (elapsed / aggTotalTime) * 100));
+        
+        // Incomplete is Yellow (NOW -> End of Current Period)
+        const incompleteStart = Math.max(aggStart, now.getTime());
+        const incompleteEnd = Math.min(aggEnd, periodEnd.getTime());
+        const incompleteTime = incompleteEnd - incompleteStart;
+        const aggIncompletePct = incompleteTime > 0 ? (incompleteTime / aggTotalTime) * 100 : 0;
 
-      if (aggProgressRef.current) {
-        aggProgressRef.current.style.width = `${aggProgressPct.toFixed(4)}%`;
+        if (aggProgressBaseRef.current) aggProgressBaseRef.current.style.width = `${aggEarnedPct.toFixed(4)}%`;
+        if (aggProgressNewRef.current) {
+          aggProgressNewRef.current.style.left = `${aggEarnedPct.toFixed(4)}%`;
+          aggProgressNewRef.current.style.width = `${aggIncompletePct.toFixed(4)}%`;
+        }
+
+        let aggCheckpointPct = -1;
+        if (viewModeRef.current !== 'PERIOD') {
+          const checkpointElapsed = periodStart.getTime() - aggStart;
+          if (checkpointElapsed > 0 && checkpointElapsed <= aggTotalTime) {
+            aggCheckpointPct = (checkpointElapsed / aggTotalTime) * 100;
+          }
+        }
+        if (aggCheckpointRef.current) {
+          aggCheckpointRef.current.style.display = (aggCheckpointPct > 0 && aggCheckpointPct < 100) ? 'block' : 'none';
+          aggCheckpointRef.current.style.left = `${aggCheckpointPct.toFixed(4)}%`;
+        }
       }
 
       let totalGrossToday = 0;
@@ -238,16 +262,54 @@ export function useSalaryEngine(config: UserConfig) {
         let calendarElapsed = now.getTime() - axisStartDate.getTime();
         if (calendarElapsed < 0) calendarElapsed = 0;
         
-        const progressPct = calendarTotal > 0 ? Math.min(100, Math.max(0, (calendarElapsed / calendarTotal) * 100)) : 0;
+        // Green: Completed up to NOW
+        const earnedPct = calendarTotal > 0 ? Math.min(100, Math.max(0, (calendarElapsed / calendarTotal) * 100)) : 0;
         
-        // Mutate BOTH Progress Bar Widths
-        const barRef = streamRefs.current[`${sData.id}-progress-bar`];
-        if (barRef) barRef.style.width = `${progressPct.toFixed(4)}%`;
+        // Yellow: Incomplete remainder of current period
+        const incompleteStart = Math.max(axisStartDate.getTime(), now.getTime());
+        const incompleteEnd = Math.min(axisEndDate.getTime(), periodEnd.getTime());
+        const incompleteTime = incompleteEnd - incompleteStart;
+        const incompletePct = (calendarTotal > 0 && incompleteTime > 0) ? (incompleteTime / calendarTotal) * 100 : 0;
 
-        const cardRef = streamRefs.current[`${sData.id}-card-progress`];
-        if (cardRef) cardRef.style.width = `${progressPct.toFixed(4)}%`;
+        // Detailed Progress Bars (Flex Container)
+        const baseBarRef = streamRefs.current[`${sData.id}-progress-base`];
+        if (baseBarRef) baseBarRef.style.width = `${earnedPct.toFixed(4)}%`;
 
-        updateText(streamRefs.current[`${sData.id}-graph-pct`], `${progressPct.toFixed(4)}%`);
+        const newBarRef = streamRefs.current[`${sData.id}-progress-new`];
+        if (newBarRef) newBarRef.style.width = `${incompletePct.toFixed(4)}%`;
+
+        // Card Background Bars (Absolute Container)
+        const cardBaseRef = streamRefs.current[`${sData.id}-card-progress-base`];
+        if (cardBaseRef) cardBaseRef.style.width = `${earnedPct.toFixed(4)}%`;
+
+        const cardNewRef = streamRefs.current[`${sData.id}-card-progress-new`];
+        if (cardNewRef) {
+          cardNewRef.style.left = `${earnedPct.toFixed(4)}%`;
+          cardNewRef.style.width = `${incompletePct.toFixed(4)}%`;
+        }
+
+        // Checkpoint
+        let checkpointPct = -1;
+        if (viewModeRef.current !== 'PERIOD') {
+          const checkpointElapsed = periodStart.getTime() - axisStartDate.getTime();
+          if (calendarTotal > 0 && checkpointElapsed > 0 && checkpointElapsed <= calendarTotal) {
+            checkpointPct = (checkpointElapsed / calendarTotal) * 100;
+          }
+        }
+        
+        const checkpointBarRef = streamRefs.current[`${sData.id}-checkpoint-bar`];
+        if (checkpointBarRef) {
+          checkpointBarRef.style.display = (checkpointPct > 0 && checkpointPct < 100) ? 'block' : 'none';
+          checkpointBarRef.style.left = `${checkpointPct.toFixed(4)}%`;
+        }
+
+        const cardCheckpointRef = streamRefs.current[`${sData.id}-card-checkpoint`];
+        if (cardCheckpointRef) {
+          cardCheckpointRef.style.display = (checkpointPct > 0 && checkpointPct < 100) ? 'block' : 'none';
+          cardCheckpointRef.style.left = `${checkpointPct.toFixed(4)}%`;
+        }
+
+        updateText(streamRefs.current[`${sData.id}-graph-pct`], `${earnedPct.toFixed(4)}%`);
 
         const finalMax = isActual ? maxGrossAgg * ratioAgg : maxGrossAgg;
         const formatShortDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
@@ -280,7 +342,6 @@ export function useSalaryEngine(config: UserConfig) {
         updateText(streamRefs.current[`${sData.id}-today-cent`], todCent);
       });
 
-      // Calculate Header Rates Based on Selected View
       const displayAnnualSalary = isActual ? calculateNetIncome(annualSalaryGross, config.taxProvince) : annualSalaryGross;
       let newEquivalents: { amount: number, label: string }[] = [];
 
@@ -314,7 +375,7 @@ export function useSalaryEngine(config: UserConfig) {
 
     animationFrameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [config, dayRolloverKey]); // Added dayRolloverKey as a dependency
+  }, [config, dayRolloverKey]); 
 
   return {
     baseEquivalents,
@@ -330,8 +391,10 @@ export function useSalaryEngine(config: UserConfig) {
     todayCentRef,
     totalDollarRef,
     totalCentRef,
-    todayProgressRef,
-    aggProgressRef,
+    todayProgressBaseRef,
+    aggProgressBaseRef,
+    aggProgressNewRef,
+    aggCheckpointRef,
     streamRefs
   };
 }

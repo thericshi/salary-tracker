@@ -19,7 +19,6 @@ export default function App() {
     const saved = localStorage.getItem('salaryConfig');
     const parsed = saved ? JSON.parse(saved) : DEFAULT_CONFIG;
     
-    // Core polyfills mapping over to new schemas
     if (!parsed.payPeriod) parsed.payPeriod = { type: 'BIWEEKLY', anchorDate: '2026-01-01' };
     if (!parsed.testing) parsed.testing = { useFakeTime: false, fakeTime: '' };
     if (!parsed.taxProvince) parsed.taxProvince = 'BC';
@@ -52,8 +51,10 @@ export default function App() {
     todayCentRef,
     totalDollarRef,
     totalCentRef,
-    todayProgressRef,
-    aggProgressRef,
+    todayProgressBaseRef,
+    aggProgressBaseRef,
+    aggProgressNewRef,
+    aggCheckpointRef,
     streamRefs
   } = useSalaryEngine(config);
 
@@ -109,8 +110,10 @@ export default function App() {
           todayCentRef={todayCentRef}
           totalDollarRef={totalDollarRef}
           totalCentRef={totalCentRef}
-          todayProgressRef={todayProgressRef}
-          aggProgressRef={aggProgressRef}
+          todayProgressBaseRef={todayProgressBaseRef}
+          aggProgressBaseRef={aggProgressBaseRef}
+          aggProgressNewRef={aggProgressNewRef}
+          aggCheckpointRef={aggCheckpointRef}
         />
 
         <StreamBreakdown 

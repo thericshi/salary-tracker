@@ -58,6 +58,10 @@ export default function App() {
     aggCheckpointRef,
     todayCanvasRef,
     aggCanvasRef,
+    legend1Ref,
+    legend10Ref,
+    legend100Ref,
+    legend1000Ref,
     streamRefs
   } = useSalaryEngine(config);
 
@@ -104,6 +108,24 @@ export default function App() {
             {taxMode === 'ACTUAL' ? 'actual ' : 'base '}equivalent
           </p>
         </div>
+
+        {/* Global Dynamic Legend */}
+        {config.showDollarBlocks && (
+          <div className="flex flex-wrap justify-center gap-4 text-sm font-medium pb-2 -mb-8">
+            <div ref={legend1Ref} className="items-center gap-2 text-slate-400" style={{ display: 'none' }}>
+              <div className="w-3 h-3 bg-emerald-400 rounded-sm" /> 1 box = $1
+            </div>
+            <div ref={legend10Ref} className="items-center gap-2 text-slate-400" style={{ display: 'none' }}>
+              <div className="w-3 h-3 bg-blue-400 rounded-sm" /> 1 box = $10
+            </div>
+            <div ref={legend100Ref} className="items-center gap-2 text-slate-400" style={{ display: 'none' }}>
+              <div className="w-3 h-3 bg-yellow-400 rounded-sm" /> 1 box = $100
+            </div>
+            <div ref={legend1000Ref} className="items-center gap-2 text-slate-400" style={{ display: 'none' }}>
+              <div className="w-3 h-3 bg-red-400 rounded-sm" /> 1 box = $1k
+            </div>
+          </div>
+        )}
 
         <SummaryPanels 
           config={config}

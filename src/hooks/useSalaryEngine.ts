@@ -2,6 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import { UserConfig, ViewMode, TaxMode, StreamDisplayMode } from '../types';
 import { calculateAnnualSalary, formatMoneyParts, getDailyWorkingMilliseconds, parseTime, getWorkingMsBetween, getCurrentPayPeriodStart, getCurrentPayPeriodEnd, calculateNetIncome } from '../lib/calculator';
 
+// Updated thresholds: 2k, 20k, 200k
+const getBoxScale = (totalDollars: number) => {
+  if (totalDollars >= 200000) return { multiplier: 1000, bg: '185, 28, 28', fg: '248, 113, 113' }; // Red ($1000)
+  if (totalDollars >= 20000) return { multiplier: 100, bg: '161, 98, 7', fg: '250, 204, 21' }; // Yellow ($100)
+  if (totalDollars >= 2000) return { multiplier: 10, bg: '29, 78, 216', fg: '96, 165, 250' }; // Blue ($10)
+  return { multiplier: 1, bg: '4, 120, 87', fg: '52, 211, 153' }; // Emerald ($1)
+};
+
 export function useSalaryEngine(config: UserConfig) {
   const [baseEquivalents, setBaseEquivalents] = useState<{ amount: number, label: string }[]>([{ amount: 0, label: 'year' }]);
   const [isWorking, setIsWorking] = useState(false);
@@ -31,13 +39,16 @@ export function useSalaryEngine(config: UserConfig) {
   const aggProgressNewRef = useRef<HTMLDivElement>(null);
   const aggCheckpointRef = useRef<HTMLDivElement>(null);
 
-  // Hardware Accelerated Canvas Refs
   const todayCanvasRef = useRef<HTMLCanvasElement>(null);
   const aggCanvasRef = useRef<HTMLCanvasElement>(null);
   
+  const legend1Ref = useRef<HTMLDivElement>(null);
+  const legend10Ref = useRef<HTMLDivElement>(null);
+  const legend100Ref = useRef<HTMLDivElement>(null);
+  const legend1000Ref = useRef<HTMLDivElement>(null);
+  
   const streamRefs = useRef<{ [key: string]: any }>({});
 
-  // High-Performance 2D Canvas Grid Builder
   const updateBoxCanvas = (
     canvas: HTMLCanvasElement | null, 
     pct: number, 
@@ -63,17 +74,17 @@ export function useSalaryEngine(config: UserConfig) {
       canvas.height = pixelH;
     }
 
-    // Cap at 250,000 blocks to prevent WebGL/CPU freezing on massive multi-year totals
-    const totalBlocks = Math.min(250000, Math.max(1, Math.floor(totalDollars)));
+    const scale = getBoxScale(totalDollars);
+    const exactTotalBoxes = totalDollars / scale.multiplier;
+    const drawableBoxes = Math.min(250000, Math.max(1, Math.ceil(exactTotalBoxes)));
     const aspect = pixelW / pixelH;
     
-    let cols = Math.ceil(Math.sqrt(totalBlocks * aspect));
-    let rows = Math.ceil(totalBlocks / cols);
+    let cols = Math.ceil(Math.sqrt(drawableBoxes * aspect));
+    let rows = Math.ceil(drawableBoxes / cols);
     
     let gap = 1 * dpr;
     let boxSize = Math.min((pixelW - (cols - 1) * gap) / cols, (pixelH - (rows - 1) * gap) / rows);
     
-    // Automatically crush gap if boxes get microscopic so they stay visible as a solid mesh
     if (boxSize < 1.5 * dpr) {
       gap = 0;
       boxSize = Math.min(pixelW / cols, pixelH / rows);
@@ -86,19 +97,19 @@ export function useSalaryEngine(config: UserConfig) {
 
     ctx.clearRect(0, 0, pixelW, pixelH);
 
-    const filledBoxes = (pct / 100) * totalBlocks;
-    const fullIdx = Math.floor(filledBoxes);
-    const frac = filledBoxes - fullIdx;
+    const earnedBoxes = (pct / 100) * exactTotalBoxes;
+    const fullIdx = Math.floor(earnedBoxes);
+    const frac = earnedBoxes - fullIdx;
     
     const emptyOp = isBackground ? 0.05 : 0.15;
     const fullOp = isBackground ? 0.25 : 1.0;
-    const baseColor = isBackground ? '16, 185, 129' : '52, 211, 153'; 
+    const baseColor = isBackground ? scale.bg : scale.fg;
 
-    // Batch draw fully earned boxes
+    // 1. Draw fully earned solid boxes
     if (fullIdx > 0) {
       ctx.fillStyle = `rgba(${baseColor}, ${fullOp})`;
       ctx.beginPath();
-      for (let i = 0; i < Math.min(fullIdx, totalBlocks); i++) {
+      for (let i = 0; i < Math.min(fullIdx, drawableBoxes); i++) {
         const col = i % cols;
         const row = Math.floor(i / cols);
         ctx.rect(offsetX + col * (boxSize + gap), offsetY + row * (boxSize + gap), boxSize, boxSize);
@@ -106,11 +117,11 @@ export function useSalaryEngine(config: UserConfig) {
       ctx.fill();
     }
 
-    // Batch draw empty/future boxes
-    if (fullIdx < totalBlocks - 1) {
+    // 2. Draw faint empty/future boxes
+    if (fullIdx < drawableBoxes) {
       ctx.fillStyle = `rgba(${baseColor}, ${emptyOp})`;
       ctx.beginPath();
-      for (let i = fullIdx + 1; i < totalBlocks; i++) {
+      for (let i = fullIdx; i < drawableBoxes; i++) {
         const col = i % cols;
         const row = Math.floor(i / cols);
         ctx.rect(offsetX + col * (boxSize + gap), offsetY + row * (boxSize + gap), boxSize, boxSize);
@@ -118,12 +129,26 @@ export function useSalaryEngine(config: UserConfig) {
       ctx.fill();
     }
 
-    // Precisely draw the single "active" pulsing box
-    if (fullIdx < totalBlocks) {
+    // 3. Overlay the exact fractional value on the active box
+    if (fullIdx < drawableBoxes && frac > 0) {
       const col = fullIdx % cols;
       const row = Math.floor(fullIdx / cols);
-      ctx.fillStyle = `rgba(${baseColor}, ${emptyOp + frac * (fullOp - emptyOp)})`;
+      ctx.fillStyle = `rgba(${baseColor}, ${frac * fullOp})`;
       ctx.fillRect(offsetX + col * (boxSize + gap), offsetY + row * (boxSize + gap), boxSize, boxSize);
+    }
+
+    // 4. Draw gray placeholder boxes to complete the perfect rectangular grid
+    const totalGridSlots = cols * rows;
+    if (drawableBoxes < totalGridSlots) {
+      const placeholderOp = isBackground ? 0.05 : 0.15;
+      ctx.fillStyle = `rgba(100, 116, 139, ${placeholderOp})`; // slate-500 equivalent
+      ctx.beginPath();
+      for (let i = drawableBoxes; i < totalGridSlots; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        ctx.rect(offsetX + col * (boxSize + gap), offsetY + row * (boxSize + gap), boxSize, boxSize);
+      }
+      ctx.fill();
     }
   };
 
@@ -273,6 +298,7 @@ export function useSalaryEngine(config: UserConfig) {
       let totalGrossPeriod = 0;
       let totalGrossYtd = 0;
       let totalGrossTotal = 0;
+
       let maxGrossTodayGlobal = 0;
       let maxGrossAggGlobal = 0;
 
@@ -307,13 +333,22 @@ export function useSalaryEngine(config: UserConfig) {
       const ratioPeriod = totalGrossPeriod > 0 ? (exactNetPeriod / totalGrossPeriod) : 1;
       const ratioAggGlobal = viewModeRef.current === 'PERIOD' ? ratioPeriod : effectiveYtdRate;
 
-      // Master Display Router: Box Mode vs Standard Mode
+      let uses1 = false, uses10 = false, uses100 = false, uses1000 = false;
+      const trackScale = (val: number) => {
+        if (val >= 200000) uses1000 = true;
+        else if (val >= 20000) uses100 = true;
+        else if (val >= 2000) uses10 = true;
+        else uses1 = true;
+      };
+
       if (config.showDollarBlocks) {
         const todayMaxGlobal = isActual ? maxGrossTodayGlobal * ratioToday : maxGrossTodayGlobal;
         updateBoxCanvas(todayCanvasRef.current, todayEarnedPct, todayMaxGlobal, true);
+        trackScale(todayMaxGlobal);
 
         const aggMaxGlobal = isActual ? maxGrossAggGlobal * ratioAggGlobal : maxGrossAggGlobal;
         updateBoxCanvas(aggCanvasRef.current, aggEarnedPct, aggMaxGlobal, true);
+        trackScale(aggMaxGlobal);
       } else {
         if (todayProgressBaseRef.current) todayProgressBaseRef.current.style.width = `${todayEarnedPct.toFixed(4)}%`;
         if (aggProgressBaseRef.current) aggProgressBaseRef.current.style.width = `${aggEarnedPct.toFixed(4)}%`;
@@ -390,6 +425,7 @@ export function useSalaryEngine(config: UserConfig) {
         if (config.showDollarBlocks) {
           updateBoxCanvas(streamRefs.current[`${sData.id}-card-canvas`], earnedPct, finalMax, true);
           updateBoxCanvas(streamRefs.current[`${sData.id}-detail-canvas`], earnedPct, finalMax, false);
+          trackScale(finalMax);
         } else {
           const baseBarRef = streamRefs.current[`${sData.id}-progress-base`];
           if (baseBarRef) baseBarRef.style.width = `${earnedPct.toFixed(4)}%`;
@@ -450,6 +486,14 @@ export function useSalaryEngine(config: UserConfig) {
         updateText(streamRefs.current[`${sData.id}-today-cent`], todCent);
       });
 
+      // Update Global Legend Visibility
+      if (config.showDollarBlocks) {
+        if (legend1Ref.current) legend1Ref.current.style.display = uses1 ? 'flex' : 'none';
+        if (legend10Ref.current) legend10Ref.current.style.display = uses10 ? 'flex' : 'none';
+        if (legend100Ref.current) legend100Ref.current.style.display = uses100 ? 'flex' : 'none';
+        if (legend1000Ref.current) legend1000Ref.current.style.display = uses1000 ? 'flex' : 'none';
+      }
+
       const displayAnnualSalary = isActual ? calculateNetIncome(annualSalaryGross, config.taxProvince) : annualSalaryGross;
       let newEquivalents: { amount: number, label: string }[] = [];
 
@@ -505,6 +549,10 @@ export function useSalaryEngine(config: UserConfig) {
     aggCheckpointRef,
     todayCanvasRef,
     aggCanvasRef,
+    legend1Ref,
+    legend10Ref,
+    legend100Ref,
+    legend1000Ref,
     streamRefs
   };
 }
